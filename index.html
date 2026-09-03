@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nifty 50 Heatmap</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
+<style>
+  :root{
+    --bg:#f4f3ef;
+    --panel:#ffffff;
+    --panel-2:#faf9f6;
+    --border:#e1ddd2;
+    --text:#1b1a17;
+    --text-dim:#726d5f;
+    --accent:#9a6b06;
+
+    --b-strong-gain:#1f8a4c; --b-strong-gain-tx:#ffffff;
+    --b-gain-3:#2f9d55;      --b-gain-3-tx:#ffffff;
+    --b-gain-2:#4bad63;      --b-gain-2-tx:#0d2414;
+    --b-gain-1:#8fc79b;      --b-gain-1-tx:#12321c;
+    --b-flat:#cabf8e;        --b-flat-tx:#2c2712;
+    --b-loss-1:#e4a09a;      --b-loss-1-tx:#3a0f0b;
+    --b-loss-2:#d4655c;      --b-loss-2-tx:#ffffff;
+    --b-loss-3:#b8362d;      --b-loss-3-tx:#ffffff;
+    --b-strong-loss:#8f1f18; --b-strong-loss-tx:#ffffff;
+    --b-na:#d8d4c8;          --b-na-tx:#726d5f;
+
+    --live-dot:#2f9d55;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0b0c0d; --panel:#141517; --panel-2:#191a1d; --border:#2a2c30;
+      --text:#eceae4; --text-dim:#8b8a83; --accent:#e8b84a;
+      --b-strong-gain:#0e8a45; --b-strong-gain-tx:#eafff0;
+      --b-gain-3:#159650;      --b-gain-3-tx:#eafff0;
+      --b-gain-2:#238f52;      --b-gain-2-tx:#eafff0;
+      --b-gain-1:#356b48;      --b-gain-1-tx:#dcf3e2;
+      --b-flat:#5c5530;        --b-flat-tx:#f1ecd4;
+      --b-loss-1:#6e2a26;      --b-loss-1-tx:#fce3e0;
+      --b-loss-2:#8a231e;      --b-loss-2-tx:#fde5e3;
+      --b-loss-3:#9c1912;      --b-loss-3-tx:#ffe6e4;
+      --b-strong-loss:#7a120c; --b-strong-loss-tx:#ffe1de;
+      --b-na:#232427;          --b-na-tx:#7a7972;
+      --live-dot:#3ec46f;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0b0c0d; --panel:#141517; --panel-2:#191a1d; --border:#2a2c30;
+    --text:#eceae4; --text-dim:#8b8a83; --accent:#e8b84a;
+    --b-strong-gain:#0e8a45; --b-strong-gain-tx:#eafff0;
+    --b-gain-3:#159650;      --b-gain-3-tx:#eafff0;
+    --b-gain-2:#238f52;      --b-gain-2-tx:#eafff0;
+    --b-gain-1:#356b48;      --b-gain-1-tx:#dcf3e2;
+    --b-flat:#5c5530;        --b-flat-tx:#f1ecd4;
+    --b-loss-1:#6e2a26;      --b-loss-1-tx:#fce3e0;
+    --b-loss-2:#8a231e;      --b-loss-2-tx:#fde5e3;
+    --b-loss-3:#9c1912;      --b-loss-3-tx:#ffe6e4;
+    --b-strong-loss:#7a120c; --b-strong-loss-tx:#ffe1de;
+    --b-na:#232427;          --b-na-tx:#7a7972;
+    --live-dot:#3ec46f;
+  }
+
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:"IBM Plex Sans",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{ max-width:1180px; margin:0 auto; padding:22px 20px 40px; }
+
+  .topbar{
+    display:flex; align-items:baseline; justify-content:space-between;
+    flex-wrap:wrap; gap:10px 24px; padding-bottom:16px;
+    border-bottom:1px solid var(--border); margin-bottom:16px;
+  }
+  .brand{ display:flex; align-items:baseline; gap:10px; }
+  .brand h1{
+    font-family:"IBM Plex Sans Condensed",sans-serif; font-weight:700;
+    font-size:22px; letter-spacing:0.04em; text-transform:uppercase;
+    color:var(--accent); margin:0;
+  }
+  .brand .sub{ font-size:12px; color:var(--text-dim); letter-spacing:0.03em; }
+  .index-readout{
+    display:flex; align-items:baseline; gap:10px;
+    font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums;
+  }
+  .index-readout .idx-name{
+    font-family:"IBM Plex Sans Condensed",sans-serif; font-weight:600;
+    font-size:13px; color:var(--text-dim); letter-spacing:0.05em; text-transform:uppercase;
+  }
+  .index-readout .idx-price{ font-size:20px; font-weight:600; }
+  .index-readout .idx-delta{ font-size:14px; font-weight:600; padding:2px 8px; border-radius:3px; }
+  .idx-delta.up{ background:var(--b-gain-2); color:var(--b-gain-2-tx); }
+  .idx-delta.down{ background:var(--b-loss-2); color:var(--b-loss-2-tx); }
+
+  .meta-row{
+    display:flex; justify-content:space-between; align-items:center;
+    flex-wrap:wrap; gap:8px 20px; margin-bottom:16px;
+    font-size:11.5px; color:var(--text-dim);
+  }
+  .status{ display:flex; align-items:center; gap:8px; font-family:"IBM Plex Mono",monospace; }
+  .live-dot{
+    width:7px; height:7px; border-radius:50%; background:var(--live-dot);
+    box-shadow:0 0 0 0 var(--live-dot);
+    animation:pulse 2s infinite;
+  }
+  @media (prefers-reduced-motion:reduce){ .live-dot{ animation:none; } }
+  @keyframes pulse{
+    0%{ box-shadow:0 0 0 0 color-mix(in srgb, var(--live-dot) 55%, transparent); }
+    70%{ box-shadow:0 0 0 6px transparent; }
+    100%{ box-shadow:0 0 0 0 transparent; }
+  }
+  .status.stale .live-dot{ background:var(--b-loss-3); animation:none; }
+  .legend{ display:flex; align-items:center; gap:6px; }
+  .legend .chip{ width:16px; height:10px; border-radius:2px; }
+  .legend span.lbl{ margin:0 2px; }
+
+  .grid{
+    display:grid; grid-template-columns:repeat(auto-fill,minmax(112px,1fr));
+    gap:4px; margin-bottom:22px;
+  }
+  .tile{
+    border-radius:4px; padding:9px 10px 8px; min-height:74px;
+    display:flex; flex-direction:column; justify-content:space-between;
+    transition:transform .12s ease, background-color .4s ease;
+  }
+  .tile:hover{ transform:translateY(-2px); }
+  .tile .name{ font-family:"IBM Plex Sans Condensed",sans-serif; font-weight:600; font-size:12.5px; letter-spacing:0.01em; }
+  .tile .price{ font-family:"IBM Plex Mono",monospace; font-size:11px; font-variant-numeric:tabular-nums; opacity:0.92; }
+  .tile .pct{ font-family:"IBM Plex Mono",monospace; font-weight:700; font-size:13px; font-variant-numeric:tabular-nums; }
+
+  .b-strong-gain{ background:var(--b-strong-gain); color:var(--b-strong-gain-tx); }
+  .b-gain-3{ background:var(--b-gain-3); color:var(--b-gain-3-tx); }
+  .b-gain-2{ background:var(--b-gain-2); color:var(--b-gain-2-tx); }
+  .b-gain-1{ background:var(--b-gain-1); color:var(--b-gain-1-tx); }
+  .b-flat{ background:var(--b-flat); color:var(--b-flat-tx); }
+  .b-loss-1{ background:var(--b-loss-1); color:var(--b-loss-1-tx); }
+  .b-loss-2{ background:var(--b-loss-2); color:var(--b-loss-2-tx); }
+  .b-loss-3{ background:var(--b-loss-3); color:var(--b-loss-3-tx); }
+  .b-strong-loss{ background:var(--b-strong-loss); color:var(--b-strong-loss-tx); }
+  .b-na{ background:var(--b-na); color:var(--b-na-tx); }
+
+  .movers{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:520px){ .movers{ grid-template-columns:1fr; } }
+  .mover-panel{ background:var(--panel); border:1px solid var(--border); border-radius:6px; padding:14px 16px; }
+  .mover-panel h2{
+    font-family:"IBM Plex Sans Condensed",sans-serif; font-size:12px; font-weight:700;
+    letter-spacing:0.08em; text-transform:uppercase; margin:0 0 10px;
+  }
+  .mover-panel.gainers h2{ color:var(--b-gain-3); }
+  .mover-panel.losers h2{ color:var(--b-loss-3); }
+  .mover-row{
+    display:flex; justify-content:space-between; align-items:baseline; padding:5px 0;
+    border-bottom:1px solid var(--border); font-family:"IBM Plex Mono",monospace;
+    font-size:12.5px; font-variant-numeric:tabular-nums;
+  }
+  .mover-row:last-child{ border-bottom:none; }
+  .mover-row .m-name{ font-family:"IBM Plex Sans Condensed",sans-serif; font-weight:600; font-size:13px; color:var(--text); }
+  .mover-row .m-price{ color:var(--text-dim); }
+  .mover-row .m-pct{ font-weight:700; min-width:64px; text-align:right; }
+  .gainers .m-pct{ color:var(--b-gain-3); }
+  .losers .m-pct{ color:var(--b-loss-3); }
+
+  .footnote{ margin-top:20px; font-size:11px; color:var(--text-dim); line-height:1.5; }
+  .footnote code{ font-family:"IBM Plex Mono",monospace; background:var(--panel-2); padding:1px 5px; border-radius:3px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div class="brand">
+      <h1>Nifty 50 · Heatmap</h1>
+      <span class="sub">NSE index constituents, ranked by session change</span>
+    </div>
+    <div class="index-readout" id="idxReadout">Loading…</div>
+  </div>
+
+  <div class="meta-row">
+    <div class="legend" id="legend"></div>
+    <div class="status" id="statusTag"><span class="live-dot"></span><span id="statusText">Loading…</span></div>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <div class="movers">
+    <div class="mover-panel gainers">
+      <h2>Top Gainers</h2>
+      <div id="gainersList"></div>
+    </div>
+    <div class="mover-panel losers">
+      <h2>Top Losers</h2>
+      <div id="losersList"></div>
+    </div>
+  </div>
+
+  <div class="footnote">
+    Prices and % change from NSE via Yahoo Finance. A GitHub Actions workflow refreshes
+    <code>data.json</code> every 5 minutes; this page re-reads it every 30 seconds while open —
+    no server, no proxy, no Claude tokens involved. Modeled on the <code>nifty-heatmap</code> Kivy app's
+    color scale and layout.
+  </div>
+</div>
+
+<script>
+const POLL_MS = 30000;
+const STALE_MS = 20 * 60 * 1000; // flag if data.json hasn't updated in 20 min
+
+function bucket(pct){
+  if(pct === null || pct === undefined) return 'b-na';
+  if(pct >= 3) return 'b-strong-gain';
+  if(pct >= 2) return 'b-gain-3';
+  if(pct >= 1) return 'b-gain-2';
+  if(pct > 0)  return 'b-gain-1';
+  if(pct === 0) return 'b-flat';
+  if(pct > -1) return 'b-loss-1';
+  if(pct > -2) return 'b-loss-2';
+  return 'b-strong-loss';
+}
+function fmtPrice(p){
+  return p === null || p === undefined ? 'N/A' : '₹' + p.toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+function fmtPct(p){
+  if(p === null || p === undefined) return '—';
+  const sign = p >= 0 ? '+' : '';
+  return sign + p.toFixed(2) + '%';
+}
+function moversList(items){
+  return items.map(r => `
+    <div class="mover-row">
+      <span class="m-name">${r.name}</span>
+      <span class="m-price">${fmtPrice(r.price)}</span>
+      <span class="m-pct">${fmtPct(r.pct)}</span>
+    </div>
+  `).join('');
+}
+
+(function(){
+  const stops = [
+    ['b-strong-loss','≤ -2%'], ['b-loss-2','-1.5%'], ['b-loss-1','-0.5%'],
+    ['b-flat','0%'], ['b-gain-1','+0.5%'], ['b-gain-2','+1.5%'], ['b-strong-gain','≥ +3%'],
+  ];
+  document.getElementById('legend').innerHTML = stops.map(([cls,lbl]) =>
+    `<div class="chip ${cls}"></div><span class="lbl">${lbl}</span>`
+  ).join('');
+})();
+
+function render(data){
+  const idx = data.index;
+  if(idx && idx.price !== undefined){
+    const up = idx.pct >= 0;
+    document.getElementById('idxReadout').innerHTML = `
+      <span class="idx-name">NIFTY 50</span>
+      <span class="idx-price">${idx.price.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+      <span class="idx-delta ${up ? 'up':'down'}">${up?'+':''}${idx.pct.toFixed(2)}% (${up?'+':''}${idx.pts.toFixed(1)} pts)</span>
+    `;
+  }
+
+  document.getElementById('grid').innerHTML = data.rows.map(r => `
+    <div class="tile ${bucket(r.pct)}">
+      <div class="name">${r.name}</div>
+      <div class="price">${fmtPrice(r.price)}</div>
+      <div class="pct">${fmtPct(r.pct)}</div>
+    </div>
+  `).join('');
+
+  document.getElementById('gainersList').innerHTML = moversList(data.gainers);
+  document.getElementById('losersList').innerHTML = moversList(data.losers);
+}
+
+function setStatus(text, stale){
+  document.getElementById('statusText').textContent = text;
+  document.getElementById('statusTag').classList.toggle('stale', !!stale);
+}
+
+async function poll(){
+  try{
+    const resp = await fetch('data.json?t=' + Date.now(), { cache: 'no-store' });
+    if(!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    render(data);
+
+    const generated = new Date(data.generatedAt);
+    const ageMs = Date.now() - generated.getTime();
+    const ageMin = Math.round(ageMs / 60000);
+    const timeStr = generated.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const stale = ageMs > STALE_MS;
+    setStatus(`Updated ${timeStr} IST · ${ageMin < 1 ? 'just now' : ageMin + 'm ago'}${stale ? ' (stale)' : ''}`, stale);
+  }catch(e){
+    setStatus('Could not reach data.json — retrying…', true);
+  }
+}
+
+poll();
+setInterval(poll, POLL_MS);
+</script>
+</body>
+</html>
