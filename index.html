@@ -120,18 +120,35 @@
   .legend span.lbl{ margin:0 2px; }
 
   .grid{
-    display:grid; grid-template-columns:repeat(auto-fill,minmax(112px,1fr));
+    display:grid; grid-template-columns:repeat(auto-fill,minmax(128px,1fr));
     gap:4px; margin-bottom:22px;
   }
   .tile{
-    border-radius:4px; padding:9px 10px 8px; min-height:74px;
-    display:flex; flex-direction:column; justify-content:space-between;
+    border-radius:4px; padding:8px 10px 7px; min-height:92px;
+    display:flex; flex-direction:column; gap:5px;
     transition:transform .12s ease, background-color .4s ease;
   }
   .tile:hover{ transform:translateY(-2px); }
   .tile .name{ font-family:"IBM Plex Sans Condensed",sans-serif; font-weight:600; font-size:12.5px; letter-spacing:0.01em; }
+  .tile .figures{ display:flex; align-items:baseline; justify-content:space-between; gap:6px; }
   .tile .price{ font-family:"IBM Plex Mono",monospace; font-size:11px; font-variant-numeric:tabular-nums; opacity:0.92; }
-  .tile .pct{ font-family:"IBM Plex Mono",monospace; font-weight:700; font-size:13px; font-variant-numeric:tabular-nums; }
+  .tile .pct{ font-family:"IBM Plex Mono",monospace; font-weight:700; font-size:12.5px; font-variant-numeric:tabular-nums; }
+
+  .day-range{ margin-top:auto; }
+  .day-range .track{
+    position:relative; height:3px; border-radius:2px;
+    background:color-mix(in srgb, currentColor 28%, transparent);
+  }
+  .day-range .dot{
+    position:absolute; top:50%; width:7px; height:7px; border-radius:50%;
+    background:currentColor; transform:translate(-50%,-50%);
+    box-shadow:0 0 0 2px color-mix(in srgb, currentColor 22%, transparent);
+  }
+  .day-range .labels{
+    display:flex; justify-content:space-between; margin-top:3px;
+    font-family:"IBM Plex Mono",monospace; font-size:8.5px;
+    font-variant-numeric:tabular-nums; opacity:0.8; letter-spacing:0.01em;
+  }
 
   .b-strong-gain{ background:var(--b-strong-gain); color:var(--b-strong-gain-tx); }
   .b-gain-3{ background:var(--b-gain-3); color:var(--b-gain-3-tx); }
@@ -228,6 +245,22 @@ function fmtPct(p){
   const sign = p >= 0 ? '+' : '';
   return sign + p.toFixed(2) + '%';
 }
+function fmtCompact(p){
+  return p === null || p === undefined ? '—' : p.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+}
+function dayRangeBar(r){
+  if(r.dayLow === null || r.dayLow === undefined || r.dayHigh === null || r.dayHigh === undefined || r.dayHigh <= r.dayLow || r.price === null){
+    return '';
+  }
+  let pos = (r.price - r.dayLow) / (r.dayHigh - r.dayLow) * 100;
+  pos = Math.min(100, Math.max(0, pos));
+  return `
+    <div class="day-range">
+      <div class="track"><div class="dot" style="left:${pos.toFixed(1)}%"></div></div>
+      <div class="labels"><span>${fmtCompact(r.dayLow)}</span><span>${fmtCompact(r.dayHigh)}</span></div>
+    </div>
+  `;
+}
 function moversList(items, field){
   return items.map(r => `
     <div class="mover-row">
@@ -260,10 +293,13 @@ function render(data){
   }
 
   document.getElementById('grid').innerHTML = data.rows.map(r => `
-    <div class="tile ${bucket(r.pct)}">
+    <div class="tile ${bucket(r.pct)}" title="Day range: ${fmtPrice(r.dayLow)} – ${fmtPrice(r.dayHigh)}">
       <div class="name">${r.name}</div>
-      <div class="price">${fmtPrice(r.price)}</div>
-      <div class="pct">${fmtPct(r.pct)}</div>
+      <div class="figures">
+        <div class="price">${fmtPrice(r.price)}</div>
+        <div class="pct">${fmtPct(r.pct)}</div>
+      </div>
+      ${dayRangeBar(r)}
     </div>
   `).join('');
 

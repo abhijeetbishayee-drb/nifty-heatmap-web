@@ -69,7 +69,10 @@ def main():
             ticker, (price, pct, pts, day_high, day_low) = future.result()
             if ticker == "^NSEI":
                 if price is not None:
-                    index_data = {"price": price, "pct": pct, "pts": pts}
+                    index_data = {
+                        "price": price, "pct": pct, "pts": pts,
+                        "dayHigh": day_high, "dayLow": day_low,
+                    }
             else:
                 stocks[ticker] = (price, pct, pts, day_high, day_low)
 
@@ -89,6 +92,8 @@ def main():
             "pts": pts,
             "offLow": off_low,
             "offHigh": off_high,
+            "dayHigh": day_high,
+            "dayLow": day_low,
         })
     rows.sort(key=lambda r: (r["pct"] if r["pct"] is not None else -999), reverse=True)
 
