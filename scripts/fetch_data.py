@@ -41,9 +41,15 @@ HEADERS = {
 }
 
 
+INDICES = {
+    "^NSEI": "nifty",
+    "^NSEBANK": "banknifty",
+}
+
+
 def fetch_one(ticker):
     try:
-        sym = "%5ENSEI" if ticker == "^NSEI" else ticker
+        sym = ticker.replace("^", "%5E")
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?interval=1d&range=5d"
         resp = requests.get(url, headers=HEADERS, timeout=10)
         data = resp.json()
@@ -59,17 +65,17 @@ def fetch_one(ticker):
 
 
 def main():
-    all_tickers = ["^NSEI"] + NIFTY50
+    all_tickers = list(INDICES.keys()) + NIFTY50
     stocks = {}
-    index_data = {}
+    indices = {}
 
     with ThreadPoolExecutor(max_workers=20) as executor:
         futures = {executor.submit(fetch_one, t): t for t in all_tickers}
         for future in as_completed(futures):
             ticker, (price, pct, pts, day_high, day_low) = future.result()
-            if ticker == "^NSEI":
+            if ticker in INDICES:
                 if price is not None:
-                    index_data = {
+                    indices[INDICES[ticker]] = {
                         "price": price, "pct": pct, "pts": pts,
                         "dayHigh": day_high, "dayLow": day_low,
                     }
@@ -105,7 +111,7 @@ def main():
 
     out = {
         "rows": rows,
-        "index": index_data,
+        "indices": indices,
         "gainers": gainers,
         "losers": losers,
         "generatedAt": datetime.now(timezone.utc).isoformat(),
@@ -115,11 +121,14 @@ def main():
     if loaded < 40:
         print(f"Only {loaded}/50 tickers loaded, aborting write to avoid bad snapshot", file=sys.stderr)
         sys.exit(1)
+    if "nifty" not in indices:
+        print("Nifty 50 index missing, aborting write to avoid bad snapshot", file=sys.stderr)
+        sys.exit(1)
 
     with open("data.json", "w") as f:
         json.dump(out, f)
 
-    print(f"Wrote data.json with {loaded}/50 stocks, index={index_data}")
+    print(f"Wrote data.json with {loaded}/50 stocks, indices={indices}")
 
 
 if __name__ == "__main__":

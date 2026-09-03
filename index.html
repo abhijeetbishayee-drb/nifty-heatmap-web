@@ -28,11 +28,13 @@
     --b-na:#d8d4c8;          --b-na-tx:#726d5f;
 
     --live-dot:#2f9d55;
+    --info:#2f5fa8; --info-tx:#ffffff;
   }
   @media (prefers-color-scheme: dark){
     :root:not([data-theme="light"]){
       --bg:#0b0c0d; --panel:#141517; --panel-2:#191a1d; --border:#2a2c30;
       --text:#eceae4; --text-dim:#8b8a83; --accent:#e8b84a;
+      --info:#4d84e2; --info-tx:#08122a;
       --b-strong-gain:#0e8a45; --b-strong-gain-tx:#eafff0;
       --b-gain-3:#159650;      --b-gain-3-tx:#eafff0;
       --b-gain-2:#238f52;      --b-gain-2-tx:#eafff0;
@@ -60,6 +62,7 @@
     --b-strong-loss:#7a120c; --b-strong-loss-tx:#ffe1de;
     --b-na:#232427;          --b-na-tx:#7a7972;
     --live-dot:#3ec46f;
+    --info:#4d84e2; --info-tx:#08122a;
   }
 
   *{box-sizing:border-box;}
@@ -96,6 +99,56 @@
   .index-readout .idx-delta{ font-size:14px; font-weight:600; padding:2px 8px; border-radius:3px; }
   .idx-delta.up{ background:var(--b-gain-2); color:var(--b-gain-2-tx); }
   .idx-delta.down{ background:var(--b-loss-2); color:var(--b-loss-2-tx); }
+
+  /* ── Index range cards ─────────────────────────── */
+  .indices-row{
+    display:grid; grid-template-columns:1fr 1fr; gap:16px;
+    margin-bottom:20px;
+  }
+  @media (max-width:560px){ .indices-row{ grid-template-columns:1fr; } }
+  .index-card{
+    background:var(--panel); border:1px solid var(--border);
+    border-radius:8px; padding:14px 18px 18px;
+  }
+  .index-card-head{
+    display:flex; flex-wrap:wrap; align-items:baseline;
+    gap:4px 12px; margin-bottom:14px;
+  }
+  .index-card-head .idx-name{ flex:1 1 auto; }
+  .index-card-head .idx-figures{
+    display:flex; align-items:baseline; gap:8px; flex-wrap:nowrap;
+  }
+  .idx-price{ white-space:nowrap; }
+  .idx-delta{ white-space:nowrap; }
+  .range-visual{ position:relative; height:58px; }
+  .range-visual .track-line{
+    position:absolute; top:40px; left:44px; right:44px; height:2px;
+    background:var(--border);
+  }
+  .range-visual .end-pill{
+    position:absolute; top:40px; transform:translateY(-50%);
+    font-family:"IBM Plex Mono",monospace; font-size:11px; font-weight:600;
+    padding:5px 9px; border-radius:12px; white-space:nowrap;
+    background:var(--panel-2); color:var(--text-dim); border:1px solid var(--border);
+    font-variant-numeric:tabular-nums;
+  }
+  .range-visual .end-pill.low{ left:0; }
+  .range-visual .end-pill.high{ right:0; }
+  .range-visual .cur-dot{
+    position:absolute; top:40px; width:9px; height:9px; border-radius:50%;
+    background:var(--info); transform:translate(-50%,-50%);
+    box-shadow:0 0 0 3px color-mix(in srgb, var(--info) 25%, transparent);
+  }
+  .range-visual .cur-stem{
+    position:absolute; top:24px; width:2px; height:16px;
+    background:var(--info); transform:translateX(-50%); opacity:0.55;
+  }
+  .range-visual .cur-pill{
+    position:absolute; top:0; transform:translateX(-50%);
+    background:var(--info); color:var(--info-tx); font-weight:700; font-size:12.5px;
+    padding:5px 10px; border-radius:14px; white-space:nowrap;
+    font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums;
+  }
 
   .meta-row{
     display:flex; justify-content:space-between; align-items:center;
@@ -193,8 +246,9 @@
       <h1>Nifty 50 · Heatmap</h1>
       <span class="sub">NSE index constituents, ranked by session change</span>
     </div>
-    <div class="index-readout" id="idxReadout">Loading…</div>
   </div>
+
+  <div class="indices-row" id="indicesRow"></div>
 
   <div class="meta-row">
     <div class="legend" id="legend"></div>
@@ -261,6 +315,40 @@ function dayRangeBar(r){
     </div>
   `;
 }
+function indexCardHtml(displayName, idx){
+  if(!idx || idx.price === undefined || idx.price === null){
+    return `<div class="index-card"><div class="index-card-head"><span class="idx-name">${displayName}</span></div><span style="color:var(--text-dim);font-size:12px;">No data</span></div>`;
+  }
+  const up = idx.pct >= 0;
+  const headHtml = `
+    <div class="index-card-head">
+      <span class="idx-name">${displayName}</span>
+      <span class="idx-figures">
+        <span class="idx-price">${idx.price.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+        <span class="idx-delta ${up ? 'up':'down'}">${up?'+':''}${idx.pct.toFixed(2)}% (${up?'+':''}${idx.pts.toFixed(1)} pts)</span>
+      </span>
+    </div>
+  `;
+
+  let rangeHtml = '';
+  if(idx.dayLow !== null && idx.dayLow !== undefined && idx.dayHigh !== null && idx.dayHigh !== undefined && idx.dayHigh > idx.dayLow){
+    let pos = (idx.price - idx.dayLow) / (idx.dayHigh - idx.dayLow);
+    pos = Math.min(0.94, Math.max(0.06, pos));
+    const leftExpr = `calc(44px + (100% - 88px) * ${pos.toFixed(4)})`;
+    rangeHtml = `
+      <div class="range-visual">
+        <div class="track-line"></div>
+        <div class="end-pill low">${idx.dayLow.toLocaleString('en-IN',{maximumFractionDigits:0})}</div>
+        <div class="end-pill high">${idx.dayHigh.toLocaleString('en-IN',{maximumFractionDigits:0})}</div>
+        <div class="cur-stem" style="left:${leftExpr}"></div>
+        <div class="cur-pill" style="left:${leftExpr}">${idx.price.toLocaleString('en-IN',{maximumFractionDigits:2})}</div>
+        <div class="cur-dot" style="left:${leftExpr}"></div>
+      </div>
+    `;
+  }
+
+  return `<div class="index-card">${headHtml}${rangeHtml}</div>`;
+}
 function moversList(items, field){
   return items.map(r => `
     <div class="mover-row">
@@ -282,15 +370,9 @@ function moversList(items, field){
 })();
 
 function render(data){
-  const idx = data.index;
-  if(idx && idx.price !== undefined){
-    const up = idx.pct >= 0;
-    document.getElementById('idxReadout').innerHTML = `
-      <span class="idx-name">NIFTY 50</span>
-      <span class="idx-price">${idx.price.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
-      <span class="idx-delta ${up ? 'up':'down'}">${up?'+':''}${idx.pct.toFixed(2)}% (${up?'+':''}${idx.pts.toFixed(1)} pts)</span>
-    `;
-  }
+  const indices = data.indices || {};
+  document.getElementById('indicesRow').innerHTML =
+    indexCardHtml('NIFTY 50', indices.nifty) + indexCardHtml('BANK NIFTY', indices.banknifty);
 
   document.getElementById('grid').innerHTML = data.rows.map(r => `
     <div class="tile ${bucket(r.pct)}" title="Day range: ${fmtPrice(r.dayLow)} – ${fmtPrice(r.dayHigh)}">
