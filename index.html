@@ -224,16 +224,19 @@
   .mover-panel.gainers h2{ color:var(--b-gain-3); }
   .mover-panel.losers h2{ color:var(--b-loss-3); }
   .mover-row{
-    display:flex; justify-content:space-between; align-items:baseline; padding:5px 0;
-    border-bottom:1px solid var(--border); font-family:"IBM Plex Mono",monospace;
-    font-size:12.5px; font-variant-numeric:tabular-nums;
+    padding:7px 0; border-bottom:1px solid var(--border);
+    font-family:"IBM Plex Mono",monospace; font-size:12.5px; font-variant-numeric:tabular-nums;
   }
   .mover-row:last-child{ border-bottom:none; }
+  .mover-top{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:5px; }
   .mover-row .m-name{ font-family:"IBM Plex Sans Condensed",sans-serif; font-weight:600; font-size:13px; color:var(--text); }
   .mover-row .m-price{ color:var(--text-dim); }
   .mover-row .m-pct{ font-weight:700; min-width:64px; text-align:right; }
   .gainers .m-pct{ color:var(--b-gain-3); }
   .losers .m-pct{ color:var(--b-loss-3); }
+  .gainers .day-range{ color:var(--b-gain-3); }
+  .losers .day-range{ color:var(--b-loss-3); }
+  .mover-row .day-range{ margin-top:0; }
 
   .footnote{ margin-top:20px; font-size:11px; color:var(--text-dim); line-height:1.5; }
   .footnote code{ font-family:"IBM Plex Mono",monospace; background:var(--panel-2); padding:1px 5px; border-radius:3px; }
@@ -352,9 +355,12 @@ function indexCardHtml(displayName, idx){
 function moversList(items, field){
   return items.map(r => `
     <div class="mover-row">
-      <span class="m-name">${r.name}</span>
-      <span class="m-price">${fmtPrice(r.price)}</span>
-      <span class="m-pct">${fmtPct(r[field])}</span>
+      <div class="mover-top">
+        <span class="m-name">${r.name}</span>
+        <span class="m-price">${fmtPrice(r.price)}</span>
+        <span class="m-pct">${fmtPct(r[field])}</span>
+      </div>
+      ${dayRangeBar(r)}
     </div>
   `).join('');
 }
