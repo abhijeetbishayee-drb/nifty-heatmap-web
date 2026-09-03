@@ -188,11 +188,11 @@
 
   <div class="movers">
     <div class="mover-panel gainers">
-      <h2>Top Gainers</h2>
+      <h2>Top Gainers <span style="font-weight:500;text-transform:none;letter-spacing:0;color:var(--text-dim);">— off day&rsquo;s low</span></h2>
       <div id="gainersList"></div>
     </div>
     <div class="mover-panel losers">
-      <h2>Top Losers</h2>
+      <h2>Top Losers <span style="font-weight:500;text-transform:none;letter-spacing:0;color:var(--text-dim);">— off day&rsquo;s high</span></h2>
       <div id="losersList"></div>
     </div>
   </div>
@@ -228,12 +228,12 @@ function fmtPct(p){
   const sign = p >= 0 ? '+' : '';
   return sign + p.toFixed(2) + '%';
 }
-function moversList(items){
+function moversList(items, field){
   return items.map(r => `
     <div class="mover-row">
       <span class="m-name">${r.name}</span>
       <span class="m-price">${fmtPrice(r.price)}</span>
-      <span class="m-pct">${fmtPct(r.pct)}</span>
+      <span class="m-pct">${fmtPct(r[field])}</span>
     </div>
   `).join('');
 }
@@ -267,8 +267,8 @@ function render(data){
     </div>
   `).join('');
 
-  document.getElementById('gainersList').innerHTML = moversList(data.gainers);
-  document.getElementById('losersList').innerHTML = moversList(data.losers);
+  document.getElementById('gainersList').innerHTML = moversList(data.gainers, 'offLow');
+  document.getElementById('losersList').innerHTML = moversList(data.losers, 'offHigh');
 }
 
 function setStatus(text, stale){

@@ -51,9 +51,11 @@ def fetch_one(ticker):
         price = meta.get("regularMarketPrice")
         pct = meta.get("regularMarketChangePercent")
         pts = meta.get("fulldayChange")
-        return ticker, (price, pct, pts)
+        day_high = meta.get("regularMarketDayHigh")
+        day_low = meta.get("regularMarketDayLow")
+        return ticker, (price, pct, pts, day_high, day_low)
     except Exception:
-        return ticker, (None, None, None)
+        return ticker, (None, None, None, None, None)
 
 
 def main():
@@ -64,27 +66,37 @@ def main():
     with ThreadPoolExecutor(max_workers=20) as executor:
         futures = {executor.submit(fetch_one, t): t for t in all_tickers}
         for future in as_completed(futures):
-            ticker, (price, pct, pts) = future.result()
+            ticker, (price, pct, pts, day_high, day_low) = future.result()
             if ticker == "^NSEI":
                 if price is not None:
                     index_data = {"price": price, "pct": pct, "pts": pts}
             else:
-                stocks[ticker] = (price, pct, pts)
+                stocks[ticker] = (price, pct, pts, day_high, day_low)
 
     rows = []
-    for ticker, (price, pct, pts) in stocks.items():
+    for ticker, (price, pct, pts, day_high, day_low) in stocks.items():
+        off_low = None
+        if price is not None and day_low:
+            off_low = (price - day_low) / day_low * 100
+        off_high = None
+        if price is not None and day_high:
+            off_high = (price - day_high) / day_high * 100
         rows.append({
             "ticker": ticker,
             "name": short_name(ticker),
             "price": price,
             "pct": pct,
             "pts": pts,
+            "offLow": off_low,
+            "offHigh": off_high,
         })
     rows.sort(key=lambda r: (r["pct"] if r["pct"] is not None else -999), reverse=True)
 
-    valid = [r for r in rows if r["pct"] is not None]
-    gainers = sorted(valid, key=lambda r: r["pct"], reverse=True)[:5]
-    losers = sorted(valid, key=lambda r: r["pct"])[:5]
+    # Top gainers: biggest bounce off the day's low. Top losers: biggest drop off the day's high.
+    valid_low = [r for r in rows if r["offLow"] is not None]
+    valid_high = [r for r in rows if r["offHigh"] is not None]
+    gainers = sorted(valid_low, key=lambda r: r["offLow"], reverse=True)[:5]
+    losers = sorted(valid_high, key=lambda r: r["offHigh"])[:5]
 
     out = {
         "rows": rows,
