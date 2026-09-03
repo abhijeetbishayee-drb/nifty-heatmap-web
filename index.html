@@ -179,9 +179,11 @@
   .tile{
     border-radius:4px; padding:8px 10px 7px; min-height:92px;
     display:flex; flex-direction:column; gap:5px;
-    transition:transform .12s ease, background-color .4s ease;
+    transition:transform .12s ease, box-shadow .12s ease, background-color .4s ease;
+    color:inherit; text-decoration:none; cursor:pointer;
   }
-  .tile:hover{ transform:translateY(-2px); }
+  .tile:hover{ transform:translateY(-2px); box-shadow:0 4px 14px color-mix(in srgb, currentColor 22%, transparent); }
+  .tile:focus-visible{ outline:2px solid var(--info); outline-offset:2px; }
   .tile .name{ font-family:"IBM Plex Sans Condensed",sans-serif; font-weight:600; font-size:12.5px; letter-spacing:0.01em; }
   .tile .figures{ display:flex; align-items:baseline; justify-content:space-between; gap:6px; }
   .tile .price{ font-family:"IBM Plex Mono",monospace; font-size:11px; font-variant-numeric:tabular-nums; opacity:0.92; }
@@ -302,6 +304,10 @@ function fmtPct(p){
   const sign = p >= 0 ? '+' : '';
   return sign + p.toFixed(2) + '%';
 }
+function nseUrl(ticker){
+  const symbol = ticker.replace(/\.NS$/, '');
+  return `https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(symbol)}`;
+}
 function fmtCompact(p){
   return p === null || p === undefined ? '—' : p.toLocaleString('en-IN', { maximumFractionDigits: 0 });
 }
@@ -381,14 +387,14 @@ function render(data){
     indexCardHtml('NIFTY 50', indices.nifty) + indexCardHtml('BANK NIFTY', indices.banknifty);
 
   document.getElementById('grid').innerHTML = data.rows.map(r => `
-    <div class="tile ${bucket(r.pct)}" title="Day range: ${fmtPrice(r.dayLow)} – ${fmtPrice(r.dayHigh)}">
+    <a class="tile ${bucket(r.pct)}" href="${nseUrl(r.ticker)}" target="_blank" rel="noopener noreferrer" title="Day range: ${fmtPrice(r.dayLow)} – ${fmtPrice(r.dayHigh)} · View on NSE">
       <div class="name">${r.name}</div>
       <div class="figures">
         <div class="price">${fmtPrice(r.price)}</div>
         <div class="pct">${fmtPct(r.pct)}</div>
       </div>
       ${dayRangeBar(r)}
-    </div>
+    </a>
   `).join('');
 
   document.getElementById('gainersList').innerHTML = moversList(data.gainers, 'offLow');
