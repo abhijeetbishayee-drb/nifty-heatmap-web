@@ -1,8 +1,11 @@
 name: Update Nifty heatmap data
 
 on:
+  # GitHub throttles the `schedule` trigger heavily and does not honor short
+  # intervals reliably — this is just a safety net. The real refresh cadence
+  # comes from an external pinger calling the workflow_dispatch API directly.
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '*/15 * * * *'
   workflow_dispatch: {}
 
 permissions:
