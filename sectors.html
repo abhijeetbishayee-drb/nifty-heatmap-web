@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>F&amp;O Sector Heatmap</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div class="brand">
+      <h1>F&amp;O · Sector Heatmap</h1>
+      <span class="sub">NSE F&amp;O stocks grouped by sector</span>
+    </div>
+    <nav class="nav">
+      <a href="index.html">Nifty 50</a>
+      <a href="sectors.html" class="active">F&amp;O Sectors</a>
+    </nav>
+  </div>
+
+  <div class="indices-row" id="indicesRow"></div>
+
+  <div class="meta-row">
+    <div class="legend" id="legend"></div>
+    <div class="status" id="statusTag"><span class="live-dot"></span><span id="statusText">Loading…</span></div>
+  </div>
+
+  <div class="meta-row">
+    <div class="controls">
+      <span class="lbl">Sort sectors</span>
+      <button type="button" data-sort="avg" class="active">By change</button>
+      <button type="button" data-sort="name">A–Z</button>
+      <button type="button" data-sort="size">By size</button>
+    </div>
+    <div class="status" id="breadthTag" style="font-family:'IBM Plex Mono',monospace;"></div>
+  </div>
+
+  <div class="sector-strip" id="sectorStrip"></div>
+
+  <div id="sectorBlocks"></div>
+
+  <div class="movers">
+    <div class="mover-panel gainers">
+      <h2>Top Gainers <span style="font-weight:500;text-transform:none;letter-spacing:0;color:var(--text-dim);">— off day&rsquo;s low, all F&amp;O</span></h2>
+      <div id="gainersList"></div>
+    </div>
+    <div class="mover-panel losers">
+      <h2>Top Losers <span style="font-weight:500;text-transform:none;letter-spacing:0;color:var(--text-dim);">— off day&rsquo;s high, all F&amp;O</span></h2>
+      <div id="losersList"></div>
+    </div>
+  </div>
+
+  <div class="footnote">
+    Prices and % change from NSE via Yahoo Finance, refreshed about once a minute by a GitHub
+    Actions workflow; this page re-reads <code>sector_data.json</code> every 30 seconds while open.
+    Sector figures are an <strong>equal-weighted average</strong> of that sector&rsquo;s F&amp;O
+    constituents — a breadth measure, not the official sector index. Tile colours use the
+    per-stock scale in the legend; sector chips use a finer scale suited to averages.
+    Tap any tile for that stock on NSE.
+  </div>
+</div>
+
+<script src="assets/app.js"></script>
+<script>
+renderLegend('legend');
+
+let latest = null;
+let sortMode = 'avg';
+
+function sortSectors(sectors){
+  const s = sectors.slice();
+  if(sortMode === 'name') s.sort((a,b) => a.sector.localeCompare(b.sector));
+  else if(sortMode === 'size') s.sort((a,b) => b.count - a.count);
+  else s.sort((a,b) => (b.avgPct ?? -999) - (a.avgPct ?? -999));
+  return s;
+}
+
+function sectorStripHtml(sectors){
+  return sectors.map(s => `
+    <a class="sector-chip ${sectorBucket(s.avgPct)}" href="#${slug(s.sector)}">
+      <span class="nm">${s.sector}</span>
+      <span class="vl">${fmtPct(s.avgPct)}</span>
+    </a>
+  `).join('');
+}
+
+function sectorBlockHtml(s){
+  const rated = s.up + s.down + s.flat;
+  const upPct   = rated ? (s.up   / rated * 100) : 0;
+  const downPct = rated ? (s.down / rated * 100) : 0;
+  return `
+    <section class="sector-block" id="${slug(s.sector)}">
+      <div class="sector-head">
+        <h2>${s.sector}</h2>
+        <span class="n">${s.count}</span>
+        <span class="avg ${sectorBucket(s.avgPct)}">${fmtPct(s.avgPct)}</span>
+        <span class="breadth">
+          <span>${s.up}&#9650; ${s.down}&#9660;</span>
+          <span class="breadth-bar">
+            <span class="up" style="width:${upPct.toFixed(1)}%"></span>
+            <span class="down" style="width:${downPct.toFixed(1)}%"></span>
+          </span>
+        </span>
+      </div>
+      <div class="grid">${s.rows.map(tileHtml).join('')}</div>
+    </section>
+  `;
+}
+
+function paintSectors(){
+  if(!latest) return;
+  const sectors = sortSectors(latest.sectors || []);
+  document.getElementById('sectorStrip').innerHTML = sectorStripHtml(sectors);
+  document.getElementById('sectorBlocks').innerHTML = sectors.map(sectorBlockHtml).join('');
+}
+
+function render(data){
+  latest = data;
+  const indices = data.indices || {};
+  document.getElementById('indicesRow').innerHTML =
+    indexCardHtml('NIFTY 50', indices.nifty) + indexCardHtml('BANK NIFTY', indices.banknifty);
+
+  const b = data.breadth;
+  document.getElementById('breadthTag').textContent =
+    b ? `${b.advancers} advancing · ${b.decliners} declining of ${b.total}` : '';
+
+  paintSectors();
+
+  document.getElementById('gainersList').innerHTML = moversList(data.gainers, 'offLow');
+  document.getElementById('losersList').innerHTML = moversList(data.losers, 'offHigh');
+}
+
+document.querySelectorAll('.controls button[data-sort]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    sortMode = btn.dataset.sort;
+    document.querySelectorAll('.controls button[data-sort]').forEach(b => b.classList.toggle('active', b === btn));
+    paintSectors();
+  });
+});
+
+startPolling('sector_data.json', render);
+</script>
+</body>
+</html>
