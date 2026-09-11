@@ -61,9 +61,14 @@
     measure), while the bar beside it is the <strong>real NSE sectoral index</strong> and where it
     currently sits in its own day range. They will not agree — the index is float-weighted and
     holds names beyond this F&amp;O list. 11 of the 18 groups have a sectoral index whose
-    composition genuinely matches; the other 7 (Capital Goods, Construction, Consumer Services,
-    Power, Services, Telecommunication, Textiles) have none, so no bar is drawn rather than
-    substituting a loosely-related index. Tile colours use the per-stock scale in the legend;
+    composition genuinely matches. The other 7 (Capital Goods, Construction, Consumer Services,
+    Power, Services, Telecommunication, Textiles) have none, so rather than substitute a
+    loosely-related index they get a <strong>dashed</strong> bar built from their own
+    constituents: each stock&rsquo;s day low and high as a % move from its own previous close,
+    averaged equal-weight. That is an <em>envelope</em> of the individual day ranges — it treats
+    every stock&rsquo;s low as simultaneous, which no real index does — so read it as &ldquo;how
+    far the average name in this sector travelled today&rdquo;, not as an index level.
+    Tile colours use the per-stock scale in the legend;
     the sector figure uses a finer scale suited to averages. Tap any tile for that stock on NSE.
   </div>
 </div>
@@ -104,6 +109,21 @@ function sectorStripHtml(sectors){
           <span class="px">${i.price.toLocaleString('en-IN',{maximumFractionDigits:2})}</span>
           <span class="pc ${up?'up':'down'}">${fmtPct(i.pct)}</span>
         </span>
+      `;
+    } else if(s.constituentRange){
+      // No sectoral index: fall back to the equal-weighted envelope of the
+      // sector's own constituents, in % terms. Styled muted + dashed so it is
+      // never mistaken for a real index bar.
+      const c = s.constituentRange;
+      let pos = (c.curPct - c.lowPct) / (c.highPct - c.lowPct) * 100;
+      pos = Math.min(100, Math.max(0, pos));
+      rangeHtml = `
+        <span class="idx-range synth" title="Equal-weighted envelope of the ${c.basis} constituents' own day ranges — not an index">
+          <span class="lo">${fmtPct(c.lowPct)}</span>
+          <span class="bar"><span class="dot" style="left:${pos.toFixed(1)}%"></span></span>
+          <span class="hi">${fmtPct(c.highPct)}</span>
+        </span>
+        <span class="idx-none">no matching NSE sectoral index<br><span class="sub2">range averaged from ${c.basis} constituents</span></span>
       `;
     } else {
       rangeHtml = `<span class="idx-none">no matching NSE sectoral index</span>`;

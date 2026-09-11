@@ -297,9 +297,22 @@
 .idx-meta .pc{ font-size:11px; font-weight:700; }
 .idx-meta .pc.up{ color:var(--b-gain-3); }
 .idx-meta .pc.down{ color:var(--b-loss-3); }
-.idx-none{
-  font-size:10px; color:var(--text-dim); font-style:italic; grid-column:3 / span 2;
+/* constituent-derived fallback range: muted + dashed, never reads as an index */
+.idx-range.synth .bar{
+  background:transparent;
+  border-top:2px dashed color-mix(in srgb, var(--text-dim) 55%, transparent);
+  height:0;
 }
+.idx-range.synth .dot{
+  background:var(--text-dim); box-shadow:0 0 0 2px color-mix(in srgb, var(--text-dim) 22%, transparent);
+  width:7px; height:7px;
+}
+.idx-range.synth .lo, .idx-range.synth .hi{ opacity:0.75; }
+.idx-none{
+  font-size:10px; color:var(--text-dim); font-style:italic;
+  text-align:right; line-height:1.35;
+}
+.idx-none .sub2{ font-size:9px; opacity:0.75; font-style:normal; }
 @media (max-width:720px){
   .sector-row{ grid-template-columns:1fr 62px; gap:6px 10px; }
   .sector-row .idx-range{ grid-column:1 / -1; }
