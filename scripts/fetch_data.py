@@ -7,7 +7,8 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO_ROOT, "nifty-heatmap-core"))
 
 from nifty_heatmap_core import (
-    NIFTY50, INDICES, FNO_ALL, fetch_all, build_rows, compute_movers, build_sectors,
+    NIFTY50, INDICES, FNO_ALL, SECTOR_INDEX_TICKERS,
+    fetch_all, build_rows, compute_movers, build_sectors, attach_sector_indices,
 )
 
 
@@ -21,7 +22,12 @@ def main():
     # Nifty 50 is a strict subset of the F&O universe, so one sweep feeds both
     # boards: data.json (Nifty 50, shape unchanged for the Android app) and
     # sector_data.json (all F&O names grouped by sector).
-    stocks, indices = fetch_all(FNO_ALL, INDICES, max_workers=25)
+    # One sweep covers the stocks, the two headline indices and the 11 sectoral
+    # indices; keys in `fetched` are "nifty"/"banknifty" plus sector names.
+    index_map = dict(INDICES)
+    index_map.update(SECTOR_INDEX_TICKERS)
+    stocks, fetched = fetch_all(FNO_ALL, index_map, max_workers=25)
+    indices = {k: v for k, v in fetched.items() if k in INDICES.values()}
     generated_at = datetime.now(timezone.utc).isoformat()
 
     if "nifty" not in indices:
@@ -53,8 +59,9 @@ def main():
         sys.exit(1)
 
     fno_gainers, fno_losers = compute_movers(fno_rows)
-    sectors = build_sectors(fno_rows)
+    sectors = attach_sector_indices(build_sectors(fno_rows), fetched)
     sectors.sort(key=lambda s: (s["avgPct"] if s["avgPct"] is not None else -999), reverse=True)
+    with_index = sum(1 for s in sectors if s["index"])
 
     advancers = sum(1 for r in fno_rows if r.get("pct") is not None and r["pct"] > 0)
     decliners = sum(1 for r in fno_rows if r.get("pct") is not None and r["pct"] < 0)
@@ -71,8 +78,8 @@ def main():
 
     print(
         f"Wrote data.json ({n50_loaded}/{len(NIFTY50)}) and "
-        f"sector_data.json ({fno_loaded}/{len(FNO_ALL)} across {len(sectors)} sectors); "
-        f"breadth {advancers} up / {decliners} down"
+        f"sector_data.json ({fno_loaded}/{len(FNO_ALL)} across {len(sectors)} sectors, "
+        f"{with_index} with a live sectoral index); breadth {advancers} up / {decliners} down"
     )
 
 
