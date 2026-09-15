@@ -360,3 +360,14 @@
 .controls button:hover{ color:var(--text); }
 .controls button.active{ color:var(--text); border-color:var(--info); }
 .controls button:focus-visible{ outline:2px solid var(--info); outline-offset:2px; }
+
+/* ── Pinned index groups (NIFTY 50 / BANK NIFTY) ────── */
+.sector-row.pinned{
+  border-color:color-mix(in srgb, var(--accent) 45%, var(--border));
+  background:color-mix(in srgb, var(--accent) 7%, var(--panel));
+}
+.sector-row.pinned .nm{ color:var(--accent); letter-spacing:0.05em; }
+.sector-block.pinned .sector-head{
+  border-bottom-color:color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+.sector-block.pinned .sector-head h2{ color:var(--accent); }

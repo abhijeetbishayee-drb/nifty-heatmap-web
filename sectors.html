@@ -80,12 +80,14 @@ renderLegend('legend');
 let latest = null;
 let sortMode = 'avg';
 
+/* NIFTY 50 and BANK NIFTY stay pinned at the top in every sort mode. */
 function sortSectors(sectors){
-  const s = sectors.slice();
-  if(sortMode === 'name') s.sort((a,b) => a.sector.localeCompare(b.sector));
-  else if(sortMode === 'size') s.sort((a,b) => b.count - a.count);
-  else s.sort((a,b) => (b.avgPct ?? -999) - (a.avgPct ?? -999));
-  return s;
+  const pinned = sectors.filter(s => s.pinned);
+  const rest = sectors.filter(s => !s.pinned);
+  if(sortMode === 'name') rest.sort((a,b) => a.sector.localeCompare(b.sector));
+  else if(sortMode === 'size') rest.sort((a,b) => b.count - a.count);
+  else rest.sort((a,b) => (b.avgPct ?? -999) - (a.avgPct ?? -999));
+  return pinned.concat(rest);
 }
 
 /* One row per sector: name, equal-weighted avg of its F&O names, then the
@@ -129,7 +131,7 @@ function sectorStripHtml(sectors){
       rangeHtml = `<span class="idx-none">no matching NSE sectoral index</span>`;
     }
     return `
-      <a class="sector-row" href="#${slug(s.sector)}">
+      <a class="sector-row${s.pinned ? ' pinned' : ''}" href="#${slug(s.sector)}">
         <span class="nm">${s.sector}</span>
         <span class="vl ${sectorBucket(s.avgPct)}">${fmtPct(s.avgPct)}</span>
         ${rangeHtml}
@@ -143,7 +145,7 @@ function sectorBlockHtml(s){
   const upPct   = rated ? (s.up   / rated * 100) : 0;
   const downPct = rated ? (s.down / rated * 100) : 0;
   return `
-    <section class="sector-block" id="${slug(s.sector)}">
+    <section class="sector-block${s.pinned ? ' pinned' : ''}" id="${slug(s.sector)}">
       <div class="sector-head">
         <h2>${s.sector}</h2>
         <span class="n">${s.count}</span>
