@@ -168,3 +168,40 @@ function startPolling(dataFile, renderFn){
   poll();
   setInterval(poll, POLL_MS);
 }
+
+/* Floating "back to top" button. Created from here so both boards get it and
+   neither can drift. Appears once you are past the first screenful, sits clear
+   of the left-aligned sector headings, and honours reduced-motion. */
+function initBackToTop(showAfter = 400){
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'to-top';
+  btn.setAttribute('aria-label', 'Back to top');
+  btn.title = 'Back to top';
+  btn.innerHTML = '<span aria-hidden="true">&#8593;</span> Top';
+  document.body.appendChild(btn);
+
+  btn.addEventListener('click', () => {
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' });
+  });
+
+  let shown = null;
+  function sync(){
+    const show = window.scrollY > showAfter;
+    if(show !== shown){
+      shown = show;
+      btn.classList.toggle('visible', show);
+    }
+  }
+  sync();
+  window.addEventListener('scroll', sync, { passive: true });
+  window.addEventListener('resize', sync, { passive: true });
+
+  // The board renders after its data arrives. If the browser restored a scroll
+  // position on reload, that happens while the document is still short and no
+  // scroll event follows - so re-check whenever the page height changes.
+  if(typeof ResizeObserver !== 'undefined'){
+    new ResizeObserver(sync).observe(document.body);
+  }
+}
