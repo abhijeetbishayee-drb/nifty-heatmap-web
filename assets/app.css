@@ -391,3 +391,10 @@
 .to-top:focus-visible{ outline:2px solid var(--info); outline-offset:2px; }
 .to-top span{ font-size:13px; line-height:1; }
 @media (prefers-reduced-motion:reduce){ .to-top{ transition:none; } }
+
+/* Cash-only names (no F&O contracts): same colour and label as any other tile,
+   with a dashed inset rule. outline (not border) so the tile grid stays aligned. */
+.tile.cash-only{
+  outline:1px dashed color-mix(in srgb, currentColor 42%, transparent);
+  outline-offset:-4px;
+}

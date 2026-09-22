@@ -70,7 +70,7 @@ function dayRangeBar(r){
 /* One stock tile: name, price, % change, day-range bar, click through to NSE. */
 function tileHtml(r){
   return `
-    <a class="tile ${bucket(r.pct)}" href="${nseUrl(r.ticker)}" target="_blank" rel="noopener noreferrer" title="Day range: ${fmtPrice(r.dayLow)} – ${fmtPrice(r.dayHigh)} · View on NSE">
+    <a class="tile ${bucket(r.pct)}${r.cashOnly ? ' cash-only' : ''}" href="${nseUrl(r.ticker)}" target="_blank" rel="noopener noreferrer" title="Day range: ${fmtPrice(r.dayLow)} – ${fmtPrice(r.dayHigh)}${r.cashOnly ? ' · cash only, no F&O' : ''} · View on NSE">
       <div class="name">${r.name}</div>
       <div class="figures">
         <div class="price">${fmtPrice(r.price)}</div>
