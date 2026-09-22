@@ -23,12 +23,18 @@ def main():
     # Nifty 50 is a strict subset of the F&O universe, so one sweep feeds both
     # boards: data.json (Nifty 50, shape unchanged for the Android app) and
     # sector_data.json (all F&O names grouped by sector).
-    # One sweep covers the stocks, the two headline indices and the 11 sectoral
-    # indices; keys in `fetched` are "nifty"/"banknifty" plus sector names.
-    index_map = dict(INDICES)
-    index_map.update(SECTOR_INDEX_TICKERS)
-    stocks, fetched = fetch_all(FNO_ALL, index_map, max_workers=25)
-    indices = {k: v for k, v in fetched.items() if k in INDICES.values()}
+    # One sweep covers the stocks, the two headline indices and the sectoral
+    # indices. Fetch them keyed BY TICKER, because a single ticker can serve
+    # more than one consumer - ^NSEBANK backs both the pinned BANK NIFTY group
+    # and the Banks sector, and a ticker->name dict would silently drop one.
+    all_index_tickers = set(INDICES) | set(SECTOR_INDEX_TICKERS)
+    stocks, by_ticker = fetch_all(
+        FNO_ALL, {t: t for t in all_index_tickers}, max_workers=25)
+
+    indices = {name: by_ticker[t] for t, name in INDICES.items() if t in by_ticker}
+    sector_snaps = {sec: by_ticker[t]
+                    for t, sec in SECTOR_INDEX_TICKERS.items() if t in by_ticker}
+    fetched = indices
     generated_at = datetime.now(timezone.utc).isoformat()
 
     if "nifty" not in indices:
@@ -60,7 +66,7 @@ def main():
         sys.exit(1)
 
     fno_gainers, fno_losers = compute_movers(fno_rows)
-    sectors = attach_sector_indices(build_sectors(fno_rows), fetched)
+    sectors = attach_sector_indices(build_sectors(fno_rows), sector_snaps)
     sectors.sort(key=lambda s: (s["avgPct"] if s["avgPct"] is not None else -999), reverse=True)
     for s in sectors:
         s["pinned"] = False
