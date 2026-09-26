@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Relative Rotation Graph</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div class="brand">
+      <h1>Relative Rotation</h1>
+      <span class="sub">Relative strength vs momentum, benchmarked to NIFTY 50</span>
+    </div>
+    <nav class="nav">
+      <a href="index.html">Nifty 50</a>
+      <a href="sectors.html">F&amp;O Sectors</a>
+      <a href="rrg.html" class="active">RRG</a>
+    </nav>
+  </div>
+
+  <div class="meta-row">
+    <div class="controls">
+      <span class="lbl">View</span>
+      <button type="button" data-view="sectors" class="active">Sectors</button>
+      <button type="button" data-view="stocks">Stocks</button>
+      <span class="lbl" style="margin-left:10px;">Period</span>
+      <button type="button" data-period="daily" class="active">Daily</button>
+      <button type="button" data-period="weekly">Weekly</button>
+      <span class="lbl" style="margin-left:10px;">Tail</span>
+      <button type="button" data-tail="4">4</button>
+      <button type="button" data-tail="8">8</button>
+      <button type="button" data-tail="12" class="active">12</button>
+    </div>
+    <div class="status" id="statusTag"><span class="live-dot"></span><span id="statusText">Loading…</span></div>
+  </div>
+
+  <div class="meta-row" id="sectorPickRow" hidden>
+    <div class="controls">
+      <span class="lbl">Sector</span>
+      <select id="sectorPick"></select>
+      <span class="lbl" id="pickHint"></span>
+    </div>
+  </div>
+
+  <div class="rrg-wrap">
+    <svg id="chart" viewBox="0 0 1000 620" preserveAspectRatio="xMidYMid meet" role="img"
+         aria-label="Relative rotation graph"></svg>
+    <div class="rrg-tip" id="tip" hidden></div>
+  </div>
+
+  <div class="quad-legend" id="quadLegend"></div>
+
+  <div class="footnote">
+    Each point is one security against <strong>NIFTY 50</strong>: horizontal is relative strength,
+    vertical is the momentum of that relative strength, both centred on 100. The trail is the last
+    few periods, so direction matters as much as position — the usual rotation runs clockwise,
+    Leading → Weakening → Lagging → Improving → Leading.
+    <br><br>
+    <strong>This is an approximation, not the licensed JdK formula.</strong> RS-Ratio and
+    RS-Momentum are proprietary to RRG Research; this uses the published approximation — smoothed
+    relative strength, z-scored onto a 100-centred scale. Quadrants and rotation behave correctly,
+    but the numbers will not tie out against a Bloomberg or Optuma RRG.
+    <br><br>
+    <strong>Sector points are equal-weighted baskets, not the NSE sectoral indices.</strong> Yahoo
+    serves no price history for 10 of the 12 sectoral indices this board maps — only a live quote —
+    so a real-index series exists for Banks and IT alone. Mixing two float-weighted indices with 21
+    equal-weighted baskets would put non-comparable points on one chart, so every sector is built
+    the same way: constituents rebased to 100 and averaged. <span id="basisNote"></span>
+    <br><br>
+    Every symbol is z-scored over an <strong>identical window</strong>. That matters more than it
+    sounds: the same stock on the same day lands in a different spot if normalised over a different
+    amount of history, so anything without enough history is excluded rather than rescaled.
+    <span id="exclNote"></span>
+    RRG is a relative-strength tool, not a standalone buy/sell signal.
+  </div>
+</div>
+
+<script src="assets/app.js"></script>
+<script>
+const QUADS = [
+  {key:'Leading',   cls:'q-lead',  label:'Leading',   hint:'strong + gaining'},
+  {key:'Weakening', cls:'q-weak',  label:'Weakening', hint:'strong, fading'},
+  {key:'Lagging',   cls:'q-lag',   label:'Lagging',   hint:'weak + falling'},
+  {key:'Improving', cls:'q-imp',   label:'Improving', hint:'weak, turning up'},
+];
+function quadrant(r,m){ return r>=100 ? (m>=100?'Leading':'Weakening') : (m>=100?'Improving':'Lagging'); }
+function quadCls(q){ return (QUADS.find(x=>x.key===q)||QUADS[2]).cls; }
+
+let DATA=null, view='sectors', period='daily', tail=12, sectorPick='__all__';
+
+document.getElementById('quadLegend').innerHTML = QUADS.map(q =>
+  `<span class="quad-key"><span class="sw ${q.cls}"></span>${q.label}<em>${q.hint}</em></span>`).join('');
+
+function activeSeries(){
+  if(!DATA) return [];
+  if(view==='sectors') return DATA.sectors[period]||[];
+  const all = DATA.stocks[period]||[];
+  return sectorPick==='__all__' ? all : all.filter(s=>s.sector===sectorPick);
+}
+
+/* With every stock on screen the chart is unreadable, so "All sectors" draws
+   bare dots; pick one sector and it gains labels and trails. */
+function detailed(series){ return !(view==='stocks' && sectorPick==='__all__'); }
+
+function render(){
+  const svg=document.getElementById('chart');
+  const series=activeSeries();
+  if(!series.length){ svg.innerHTML=''; return; }
+
+  const pts=series.map(s=>({...s, tail:s.tail.slice(-tail)}));
+  const show=detailed(pts);
+
+  const xs=[], ys=[];
+  pts.forEach(s=>s.tail.forEach(([r,m])=>{xs.push(r); ys.push(m);}));
+  const W=1000,H=620,PAD={l:58,r:26,t:24,b:52};
+  const span=(arr)=>{
+    let lo=Math.min(100,...arr), hi=Math.max(100,...arr);
+    const pad=Math.max((hi-lo)*0.14, 0.25);
+    return [lo-pad, hi+pad];
+  };
+  const [x0,x1]=span(xs), [y0,y1]=span(ys);
+  const px=v=>PAD.l+(v-x0)/(x1-x0)*(W-PAD.l-PAD.r);
+  const py=v=>H-PAD.b-(v-y0)/(y1-y0)*(H-PAD.t-PAD.b);
+  const cx=px(100), cy=py(100);
+
+  const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  let out='';
+
+  // quadrant fills
+  out+=`<rect class="q-lead" x="${cx}" y="${PAD.t}" width="${W-PAD.r-cx}" height="${cy-PAD.t}"/>`;
+  out+=`<rect class="q-weak" x="${cx}" y="${cy}" width="${W-PAD.r-cx}" height="${H-PAD.b-cy}"/>`;
+  out+=`<rect class="q-lag"  x="${PAD.l}" y="${cy}" width="${cx-PAD.l}" height="${H-PAD.b-cy}"/>`;
+  out+=`<rect class="q-imp"  x="${PAD.l}" y="${PAD.t}" width="${cx-PAD.l}" height="${cy-PAD.t}"/>`;
+
+  // ticks
+  const ticks=(lo,hi)=>{const step=Math.max(0.25,+(((hi-lo)/5).toFixed(2)));const o=[];
+    for(let v=Math.ceil(lo/step)*step; v<=hi; v+=step) o.push(+v.toFixed(2)); return o;};
+  ticks(x0,x1).forEach(v=>{out+=`<line class="grid" x1="${px(v)}" y1="${PAD.t}" x2="${px(v)}" y2="${H-PAD.b}"/>`+
+    `<text class="tick" x="${px(v)}" y="${H-PAD.b+16}" text-anchor="middle">${v.toFixed(2)}</text>`;});
+  ticks(y0,y1).forEach(v=>{out+=`<line class="grid" x1="${PAD.l}" y1="${py(v)}" x2="${W-PAD.r}" y2="${py(v)}"/>`+
+    `<text class="tick" x="${PAD.l-8}" y="${py(v)+4}" text-anchor="end">${v.toFixed(2)}</text>`;});
+
+  out+=`<line class="cross" x1="${cx}" y1="${PAD.t}" x2="${cx}" y2="${H-PAD.b}"/>`;
+  out+=`<line class="cross" x1="${PAD.l}" y1="${cy}" x2="${W-PAD.r}" y2="${cy}"/>`;
+
+  out+=`<text class="qlabel" x="${W-PAD.r-8}" y="${PAD.t+16}" text-anchor="end">Leading</text>`;
+  out+=`<text class="qlabel" x="${PAD.l+8}" y="${PAD.t+16}">Improving</text>`;
+  out+=`<text class="qlabel" x="${PAD.l+8}" y="${H-PAD.b-8}">Lagging</text>`;
+  out+=`<text class="qlabel" x="${W-PAD.r-8}" y="${H-PAD.b-8}" text-anchor="end">Weakening</text>`;
+  out+=`<text class="axis" x="${(PAD.l+W-PAD.r)/2}" y="${H-10}" text-anchor="middle">RS-Ratio (relative strength)</text>`;
+  out+=`<text class="axis" transform="translate(14,${(PAD.t+H-PAD.b)/2}) rotate(-90)" text-anchor="middle">RS-Momentum</text>`;
+
+  pts.forEach((s,i)=>{
+    const t=s.tail, last=t[t.length-1], q=quadrant(last[0],last[1]), cls=quadCls(q);
+    if(show && t.length>1){
+      out+=`<polyline class="trail ${cls}" points="${t.map(([r,m])=>`${px(r).toFixed(1)},${py(m).toFixed(1)}`).join(' ')}"/>`;
+      t.slice(0,-1).forEach(([r,m])=>{out+=`<circle class="dot-s ${cls}" cx="${px(r).toFixed(1)}" cy="${py(m).toFixed(1)}" r="2"/>`;});
+    }
+    const X=px(last[0]).toFixed(1), Y=py(last[1]).toFixed(1);
+    out+=`<circle class="dot ${cls}${s.cashOnly?' cash':''}" cx="${X}" cy="${Y}" r="${show?5:3.2}"`+
+         ` data-i="${i}" tabindex="0"><title>${esc(s.name)} · RS ${last[0].toFixed(2)} · Mom ${last[1].toFixed(2)} · ${q}</title></circle>`;
+    if(show) out+=`<text class="plabel" x="${+X+8}" y="${+Y+4}">${esc(s.name)}</text>`;
+  });
+
+  svg.innerHTML=out;
+  svg.querySelectorAll('.dot').forEach(el=>{
+    el.addEventListener('mouseenter',e=>showTip(pts[+el.dataset.i], e));
+    el.addEventListener('mouseleave',hideTip);
+    el.addEventListener('focus',e=>showTip(pts[+el.dataset.i], e));
+    el.addEventListener('blur',hideTip);
+  });
+}
+
+function showTip(s,e){
+  const t=document.getElementById('tip'), last=s.tail[s.tail.length-1];
+  const q=quadrant(last[0],last[1]);
+  t.innerHTML=`<strong>${s.name}</strong> <span class="q ${quadCls(q)}">${q}</span><br>`+
+    `RS-Ratio ${last[0].toFixed(2)} · RS-Mom ${last[1].toFixed(2)}`+
+    (s.basis!==undefined?`<br><span class="dim">equal-weight of ${s.basis} of ${s.count}</span>`:'')+
+    (s.sector?`<br><span class="dim">${s.sector}${s.cashOnly?' · cash only':''}</span>`:'');
+  const r=document.querySelector('.rrg-wrap').getBoundingClientRect();
+  t.style.left=Math.min(r.width-190, Math.max(0, e.clientX-r.left+12))+'px';
+  t.style.top=Math.max(0, e.clientY-r.top-10)+'px';
+  t.hidden=false;
+}
+function hideTip(){ document.getElementById('tip').hidden=true; }
+
+function syncChrome(){
+  document.getElementById('sectorPickRow').hidden = (view!=='stocks');
+  const n=activeSeries().length;
+  document.getElementById('pickHint').textContent =
+    view==='stocks' && sectorPick==='__all__'
+      ? `${n} stocks — pick a sector for labels and trails`
+      : `${n} plotted`;
+  const ex=(DATA&&DATA.excluded[period])||[];
+  const names=ex.filter(e=>e.kind!=='sector').map(e=>e.name);
+  document.getElementById('exclNote').textContent = names.length
+    ? `Excluded on this timeframe: ${names.join(', ')}.` : '';
+  const secs=(DATA&&DATA.sectors[period])||[];
+  const part=secs.filter(s=>s.basis<s.count);
+  document.getElementById('basisNote').textContent = part.length
+    ? 'Where a constituent lacks the full window it is left out of its basket rather than shortening it: '
+      + part.map(s=>`${s.name} uses ${s.basis} of ${s.count}`).join('; ') + '.'
+    : '';
+}
+
+function wire(attr, fn){
+  document.querySelectorAll(`.controls button[${attr}]`).forEach(b=>{
+    b.addEventListener('click',()=>{
+      document.querySelectorAll(`.controls button[${attr}]`).forEach(o=>o.classList.toggle('active',o===b));
+      fn(b.getAttribute(attr)); syncChrome(); render();
+    });
+  });
+}
+wire('data-view', v=>{view=v;});
+wire('data-period', p=>{period=p;});
+wire('data-tail', t=>{tail=+t;});
+document.getElementById('sectorPick').addEventListener('change',e=>{
+  sectorPick=e.target.value; syncChrome(); render();
+});
+
+async function load(){
+  try{
+    const r=await fetch('rrg_data.json?t='+Date.now(),{cache:'no-store'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    DATA=await r.json();
+    const secs=[...new Set((DATA.stocks.daily||[]).map(s=>s.sector))].sort();
+    document.getElementById('sectorPick').innerHTML =
+      `<option value="__all__">All sectors</option>`+secs.map(s=>`<option value="${s}">${s}</option>`).join('');
+    const g=new Date(DATA.generatedAt);
+    setStatus('Computed '+g.toLocaleString('en-IN',{timeZone:'Asia/Kolkata',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})+' IST · daily rebuild', false);
+    syncChrome(); render();
+  }catch(e){ setStatus('Could not reach rrg_data.json',true); }
+}
+load();
+window.addEventListener('resize',()=>{hideTip();});
+</script>
+</body>
+</html>

@@ -57,6 +57,8 @@
   }
 
   *{box-sizing:border-box;}
+  /* a class with display:flex/grid beats the UA sheet's [hidden] rule */
+  [hidden]{ display:none !important; }
   body{
     margin:0;
     background:var(--bg);
@@ -398,3 +400,84 @@
   outline:1px dashed color-mix(in srgb, currentColor 42%, transparent);
   outline-offset:-4px;
 }
+
+/* ── Relative Rotation Graph ─────────────────────────── */
+:root{
+  --q-lead:#2f9d55; --q-weak:#c9a227; --q-lag:#b8362d; --q-imp:#2f5fa8;
+  --q-fill:0.10;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --q-lead:#3ec46f; --q-weak:#d8b53c; --q-lag:#d4564a; --q-imp:#4d84e2;
+    --q-fill:0.13;
+  }
+}
+:root[data-theme="dark"]{
+  --q-lead:#3ec46f; --q-weak:#d8b53c; --q-lag:#d4564a; --q-imp:#4d84e2;
+  --q-fill:0.13;
+}
+
+.rrg-wrap{
+  position:relative; background:var(--panel); border:1px solid var(--border);
+  border-radius:8px; padding:6px; margin-bottom:14px;
+}
+#chart{ display:block; width:100%; height:auto; }
+
+#chart .q-lead{ fill:var(--q-lead); fill-opacity:var(--q-fill); }
+#chart .q-weak{ fill:var(--q-weak); fill-opacity:var(--q-fill); }
+#chart .q-lag { fill:var(--q-lag);  fill-opacity:var(--q-fill); }
+#chart .q-imp { fill:var(--q-imp);  fill-opacity:var(--q-fill); }
+
+#chart .grid{ stroke:var(--border); stroke-width:1; opacity:0.5; }
+#chart .cross{ stroke:var(--text-dim); stroke-width:1.4; opacity:0.75; }
+#chart .tick, #chart .axis, #chart .qlabel, #chart .plabel{
+  font-family:"IBM Plex Mono",monospace; fill:var(--text-dim);
+}
+#chart .tick{ font-size:10px; font-variant-numeric:tabular-nums; }
+#chart .axis{ font-size:11px; letter-spacing:0.04em; }
+#chart .qlabel{
+  font-family:"IBM Plex Sans Condensed",sans-serif; font-size:12px; font-weight:700;
+  letter-spacing:0.08em; text-transform:uppercase; opacity:0.75;
+}
+#chart .plabel{
+  font-family:"IBM Plex Sans Condensed",sans-serif; font-size:10.5px;
+  font-weight:600; fill:var(--text); paint-order:stroke;
+  stroke:var(--panel); stroke-width:3px; stroke-linejoin:round;
+}
+#chart .trail{ fill:none; stroke-width:1.6; opacity:0.55; }
+#chart .trail.q-lead{ stroke:var(--q-lead); } #chart .trail.q-weak{ stroke:var(--q-weak); }
+#chart .trail.q-lag { stroke:var(--q-lag);  } #chart .trail.q-imp { stroke:var(--q-imp);  }
+#chart .dot-s{ opacity:0.5; }
+#chart .dot-s.q-lead,#chart .dot.q-lead{ fill:var(--q-lead); }
+#chart .dot-s.q-weak,#chart .dot.q-weak{ fill:var(--q-weak); }
+#chart .dot-s.q-lag, #chart .dot.q-lag { fill:var(--q-lag);  }
+#chart .dot-s.q-imp, #chart .dot.q-imp { fill:var(--q-imp);  }
+#chart .dot{ stroke:var(--panel); stroke-width:1.5; cursor:pointer; }
+#chart .dot.cash{ stroke-dasharray:2 2; stroke:var(--text-dim); stroke-width:1.6; }
+#chart .dot:hover{ stroke:var(--text); }
+#chart .dot:focus-visible{ outline:2px solid var(--info); }
+
+.rrg-tip{
+  position:absolute; pointer-events:none; z-index:5; max-width:220px;
+  background:var(--panel-2); border:1px solid var(--border); border-radius:6px;
+  padding:7px 10px; font-size:11.5px; line-height:1.5; color:var(--text);
+  box-shadow:0 4px 16px rgba(0,0,0,0.35);
+}
+.rrg-tip .dim{ color:var(--text-dim); }
+.rrg-tip .q{ font-weight:700; }
+.rrg-tip .q.q-lead{ color:var(--q-lead); } .rrg-tip .q.q-weak{ color:var(--q-weak); }
+.rrg-tip .q.q-lag { color:var(--q-lag);  } .rrg-tip .q.q-imp { color:var(--q-imp);  }
+
+.quad-legend{ display:flex; flex-wrap:wrap; gap:6px 18px; margin-bottom:16px; font-size:11.5px; color:var(--text-dim); }
+.quad-key{ display:inline-flex; align-items:center; gap:6px; }
+.quad-key .sw{ width:12px; height:12px; border-radius:3px; }
+.quad-key .sw.q-lead{ background:var(--q-lead); } .quad-key .sw.q-weak{ background:var(--q-weak); }
+.quad-key .sw.q-lag { background:var(--q-lag);  } .quad-key .sw.q-imp { background:var(--q-imp);  }
+.quad-key em{ font-style:normal; opacity:0.72; }
+
+.controls select{
+  font-family:"IBM Plex Sans Condensed",sans-serif; font-size:11.5px; font-weight:600;
+  padding:5px 8px; border-radius:5px; border:1px solid var(--border);
+  background:var(--panel); color:var(--text); cursor:pointer;
+}
+.controls select:focus-visible{ outline:2px solid var(--info); outline-offset:2px; }

@@ -1,0 +1,60 @@
+name: Rebuild RRG data
+
+# Deliberately NOT folded into "Update Nifty heatmap data". That workflow runs
+# every minute with cancel-in-progress, so any run slower than the ping
+# interval gets killed by the next one - and the RRG build pulls 5y of history
+# for ~240 symbols (~25 MB, 10-20s), which would push the combined job close to
+# that limit and could leave rrg_data.json permanently unrefreshed.
+#
+# RRG is read off daily/weekly bars, so once a day after the close is the right
+# cadence. GitHub throttles scheduled workflows (observed 1-2h late), which is
+# fine here: an hour's drift on a post-close daily rebuild changes nothing. The
+# script also re-checks staleness itself, so a late or duplicate run is a no-op.
+
+on:
+  schedule:
+    - cron: '45 10 * * 1-5'   # 16:15 IST, weekdays, after the 15:30 cash close
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Rebuild even if already current for the latest close'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rrg-data          # no cancel-in-progress: let a slow run finish
+
+jobs:
+  rrg:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Build RRG data
+        run: |
+          if [ "${{ inputs.force }}" = "true" ]; then
+            python scripts/build_rrg.py
+          else
+            python scripts/build_rrg.py --if-stale
+          fi
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add rrg_data.json
+          git diff --staged --quiet || git commit -m "Rebuild rrg_data.json"
+          git pull --rebase origin main
+          git push
