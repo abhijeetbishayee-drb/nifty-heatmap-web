@@ -307,26 +307,19 @@ function render3d(){
   const svg=document.getElementById('chart');
   const W=1000, H=620;
 
-  /* The two Z metrics differ in kind. Volatility is a positive magnitude with
-     no natural zero, so its calmest reading sits at the centre. Absolute
-     return is SIGNED, and here the radius carries its SIZE while the northern
-     or southern hemisphere already carries direction of momentum - so the
-     radius uses the size of the move and the sign is reported in the label. */
+  /* The Z toggle now chooses what SIZE carries, not what the radius means.
+     The radius is always conviction (see radOf below), so this is the free
+     channel. */
   const Z = zaxis==='ret' ? {
-    key:'ret', name:'absolute return', axis:'|absolute return|',
+    key:'ret', name:'absolute return', size:'size of the move',
     fmt:v=>(v>=0?'+':'')+v.toFixed(1)+'%', signed:true,
-    lo:'flat — small, opaque, near the centre',
-    hi:'big move either way — large, translucent, out at the shell',
   } : {
-    key:'vol', name:'volatility', axis:'volatility',
+    key:'vol', name:'volatility', size:'volatility',
     fmt:v=>v.toFixed(0)+'%', signed:false,
-    lo:'low volatility — small, opaque, near the centre',
-    hi:'high volatility — large, translucent, out at the shell',
   };
 
   const series=activeSeries()
-    .map(s=>({...s, tail:s.tail.slice(-tail), z:(s[Z.key]||[]).slice(-tail),
-              vol:(s.vol||[]).slice(-tail)}))
+    .map(s=>({...s, tail:s.tail.slice(-tail), z:(s[Z.key]||[]).slice(-tail)}))
     .filter(s=>s.z.length===s.tail.length && s.z.every(v=>v!=null));
   const novol=activeSeries().length - series.length;
   document.getElementById('volHint').textContent = series.length
@@ -335,79 +328,58 @@ function render3d(){
   if(!series.length){ svg.innerHTML=''; return; }
 
   const show=detailed(series) || zoom >= 1.5;
-
-  // ── ranges ───────────────────────────────────────────────────────────
-  const xs=[], ys=[], vs=[];
-  series.forEach(s=>{ s.tail.forEach(([r,m])=>{xs.push(r);ys.push(m);}); s.z.forEach(v=>vs.push(v)); });
-  /* Scaling the angles by the single largest deviation wastes the globe: one
-     extreme name sets the range and the median sector then occupies 12-26% of
-     its axis, leaving everything bunched along the equator. Measured on this
-     board 2026-09-27: median |RS-100| 0.36 against a 1.36 max, median
-     |Mom-100| 0.41 against 2.62.
-
-     So longitude and latitude use an asinh (symlog) scale keyed to the MEDIAN
-     deviation. It is monotonic and clamps nothing, so no name loses its
-     place and the ordering is exactly the ordering of the 2D board - but the
-     crowded middle spreads out and the extremes compress toward the rim
-     instead of dictating the scale.
-
-     The consequence, and it matters: angle on the globe is monotonic in
-     RS-Ratio but NOT linear in it, while the 2D board is linear. Read
-     direction and grouping here; read precise position on the 2D board. */
-  const asinh=v=>Math.log(v+Math.sqrt(v*v+1));
-  const devScale=arr=>{
-    const d=arr.map(v=>Math.abs(v-100)).sort((a,b)=>a-b);
-    return Math.max(1e-6, d[Math.floor(d.length/2)] || 0.25);
-  };
-  const sx_=devScale(xs), sy_=devScale(ys);
-  const mx_=Math.max(1e-6,...xs.map(v=>Math.abs(v-100)));
-  const my_=Math.max(1e-6,...ys.map(v=>Math.abs(v-100)));
-  const spreadX=v=>{const d=(v-100); return Math.sign(d)*asinh(Math.abs(d)/sx_)/asinh(mx_/sx_);};
-  const spreadY=v=>{const d=(v-100); return Math.sign(d)*asinh(Math.abs(d)/sy_)/asinh(my_/sy_);};
-  // kept for the axis labels, which still quote real RS / momentum values
-  const x0=100-mx_, x1=100+mx_, y0=100-my_, y1=100+my_;
-  let v0=Math.min(...vs), v1=Math.max(...vs);
-  if(Z.signed){ v0=0; v1=Math.max(1e-6,...vs.map(Math.abs)); }
-  if(v1-v0 < 1e-6){ v1=v0+1; }
-
-  /* ── the globe ────────────────────────────────────────────────────────
-     RS-Ratio is LONGITUDE, RS-Momentum is LATITUDE, and the Z metric is the
-     RADIUS from the centre out to the shell.
-
-     That makes the two dividing great circles mean something exact: the
-     EQUATOR is RS-Momentum 100 and the PRIME MERIDIAN is RS-Ratio 100. They
-     cut the globe into the four RRG quadrants - east is strong, north is
-     gaining - so Leading is the north-east face, Weakening south-east,
-     Lagging south-west, Improving north-west, whatever the radius.
-
-     Longitude stops at ±150° so the two extremes of RS-Ratio never meet
-     behind the globe, and latitude at ±72° so nothing lands exactly on a pole
-     where longitude stops meaning anything. R_FLOOR keeps even the calmest
-     name off the dead centre, where it would have no readable direction. */
-  const LON = 150*Math.PI/180, LAT = 72*Math.PI/180, R_FLOOR = 0.18;
   const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
-  const lonOf = rs => clamp(spreadX(rs), -1, 1) * LON;
-  const latOf = mm => clamp(spreadY(mm), -1, 1) * LAT;
-  /* Radius gets the same asinh treatment as the angles, and for the same
-     reason: on absolute return most sectors sit within a couple of percent of
-     zero while one runs to -9%, so a linear radius buries the whole board at
-     the centre. Monotonic, nothing clamped away - but as with the angles,
-     distance here is ORDERED by the metric, not proportional to it. */
-  const zMid = (()=>{ const a=vs.map(v=>Math.abs((Z.signed?Math.abs(v):v)-v0)).sort((x,y)=>x-y);
-    return Math.max(1e-6, a[Math.floor(a.length/2)]||1); })();
-  const zTop = Math.max(1e-6, v1-v0);
-  const radOf = zv => {
-    const dz = clamp((Z.signed?Math.abs(zv):zv) - v0, 0, zTop);
-    const t = asinh(dz/zMid)/asinh(zTop/zMid);
+  const asinh=v=>Math.log(v+Math.sqrt(v*v+1));
+  const medOf=a=>{const s=[...a].sort((x,y)=>x-y); return Math.max(1e-6, s[Math.floor(s.length/2)]||1);};
+
+  const xs=[], ys=[], vs=[], ds=[];
+  series.forEach(s=>{
+    s.tail.forEach(([r,m])=>{xs.push(r);ys.push(m);ds.push(Math.hypot(r-100,m-100));});
+    s.z.forEach(v=>vs.push(Z.signed?Math.abs(v):v));
+  });
+
+  /* ── angles: longitude = RS-Ratio, latitude = RS-Momentum ─────────────
+     Equator is RS-Momentum 100, prime meridian is RS-Ratio 100. Together
+     they cut the globe into the four RRG quadrants: east is strong, north is
+     gaining, so Leading is the north-east face and so on round. */
+  /* Longitude stops at 84 degrees, not 150. At 150 the extremes of RS-Ratio
+     wrapped onto the FAR side of the globe, so the most decisive names - the
+     ones most worth seeing - were the ones hidden behind it. Inside 90 every
+     name sits on the near hemisphere, so face on the map reads like a flat
+     RRG with nothing behind anything, and rotating is what adds depth rather
+     than what rescues hidden points. Latitude stays at 72 so nothing lands on
+     a pole, where longitude stops meaning anything. */
+  const LON = 84*Math.PI/180, LAT = 72*Math.PI/180, R_FLOOR = 0.14;
+  const sx_=medOf(xs.map(v=>Math.abs(v-100))), sy_=medOf(ys.map(v=>Math.abs(v-100)));
+  const mx_=Math.max(1e-6,...xs.map(v=>Math.abs(v-100))), my_=Math.max(1e-6,...ys.map(v=>Math.abs(v-100)));
+  const lonOf = rs => clamp(Math.sign(rs-100)*asinh(Math.abs(rs-100)/sx_)/asinh(mx_/sx_),-1,1)*LON;
+  const latOf = mm => clamp(Math.sign(mm-100)*asinh(Math.abs(mm-100)/sy_)/asinh(my_/sy_),-1,1)*LAT;
+
+  /* ── radius: CONVICTION, not a bolted-on metric ───────────────────────
+     Distance from the 100/100 crosshair. The centre is where a name has no
+     meaningful relative strength either way and its quadrant label barely
+     means anything, because a tiny move flips it; the shell is where it sits
+     decisively in its quadrant.
+
+     Measured on the live tails, this is what earns the geometry: a stock in
+     the inner band changes quadrant on 32.7% of steps against 12.8% out at
+     the shell, 2.6x more often. So a bubble falling inward is a trend losing
+     conviction BEFORE the quadrant label changes, and rotation genuinely
+     happens through the middle. asinh-scaled like the angles - ordered by
+     distance, not proportional to it. */
+  const sd_=medOf(ds), md_=Math.max(1e-6,...ds);
+  const radOf = (rs,mm) => {
+    const t = asinh(Math.hypot(rs-100,mm-100)/sd_)/asinh(md_/sd_);
     return R_FLOOR + (1-R_FLOOR)*clamp(t,0,1);
   };
-  // lon 0 faces the camera at yaw 0, so RS 100 starts front and centre
-  const world = (lon, lat, r) => [ r*Math.cos(lat)*Math.sin(lon),
-                                   r*Math.sin(lat),
-                                   r*Math.cos(lat)*Math.cos(lon) ];
-  const wOf = (rs, mm, zv) => world(lonOf(rs), latOf(mm), radOf(zv));
 
-  // ── auto-fit against the shell so the frame never clips as it turns ──
+  const world=(lon,lat,r)=>[ r*Math.cos(lat)*Math.sin(lon), r*Math.sin(lat), r*Math.cos(lat)*Math.cos(lon) ];
+  const wOf=(rs,mm)=>world(lonOf(rs), latOf(mm), radOf(rs,mm));
+
+  // size carries the Z metric
+  const sz0=Math.min(...vs), sz1=Math.max(...vs);
+  const szN=v=>(sz1-sz0<1e-9)?0.5:clamp(((Z.signed?Math.abs(v):v)-sz0)/(sz1-sz0),0,1);
+
   const probe=[];
   for(let i=0;i<32;i++){const a=i/32*2*Math.PI;
     probe.push(rot(Math.cos(a),Math.sin(a),0), rot(Math.cos(a),0,Math.sin(a)), rot(0,Math.cos(a),Math.sin(a)));}
@@ -417,96 +389,119 @@ function render3d(){
   const k=Math.min((W-2*M)/Math.max(bx1-bx0,1e-6), (H-2*M)/Math.max(by1-by0,1e-6))*zoom;
   const ox=W/2-k*(bx0+bx1)/2, oy=H/2-k*(by0+by1)/2;
   const P=(wx,wy,wz)=>{ const p=rot(wx,wy,wz); return {x:ox+k*p.x, y:oy+k*p.y, z:p.z, s:p.s}; };
-  const pt=(rs,mm,zv)=>P(...wOf(rs,mm,zv));
+  const pt=(rs,mm)=>P(...wOf(rs,mm));
 
   const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   const xy=p=>`${p.x.toFixed(1)},${p.y.toFixed(1)}`;
-  let out='';
 
-  out+='<defs>'+QUADS.map(q=>
+  /* ── front / back ─────────────────────────────────────────────────────
+     A wireframe globe is transparent, so the far side shows straight through
+     and the two halves of every quadrant overlap - which makes the map
+     unreadable. Everything is therefore split by depth and drawn in three
+     passes: the far half, then a translucent globe body that occludes it,
+     then the near half. The far half stays faintly visible for context
+     instead of vanishing, so a rotation never makes points pop in and out. */
+  let back='', body='', front='';
+  const put=(depth, svgStr)=>{ if(depth<0) back+=svgStr; else front+=svgStr; };
+
+  const arcSplit=(fn, cls)=>{
+    let run=[], runDepth=null;
+    const flush=()=>{ if(run.length>1) put(runDepth, `<polyline class="${cls}${runDepth<0?' far':''}" points="${run.join(' ')}"/>`); run=[]; };
+    for(let a=0;a<=360;a+=3){
+      const t=a*Math.PI/180, w=fn(t), p=P(...w), dep=p.z<0?-1:1;
+      if(runDepth===null) runDepth=dep;
+      if(dep!==runDepth){ run.push(xy(p)); flush(); runDepth=dep; }
+      run.push(xy(p));
+    }
+    flush();
+  };
+
+  front+='<defs>'+QUADS.map(q=>
     `<radialGradient id="sph-${q.cls}" cx="34%" cy="28%" r="72%">`+
     `<stop offset="0%" stop-color="#ffffff" stop-opacity="0.72"/>`+
     `<stop offset="42%" stop-color="var(--${q.cls})"/>`+
     `<stop offset="100%" stop-color="var(--${q.cls})" stop-opacity="0.82"/>`+
     `</radialGradient>`).join('')+'</defs>';
 
-  // ── shell: the two quadrant dividers first, then faint guides ────────
-  const arc=(fn,cls)=>{const p=[];for(let a=0;a<=360;a+=4){const t=a*Math.PI/180;p.push(xy(P(...fn(t))));}
-    out+=`<polyline class="${cls}" points="${p.join(' ')}"/>`;};
-  arc(t=>world(t,0,1), 'globe divider');                 // equator  = Mom 100
-  arc(t=>world(0,t,1), 'globe divider');                 // meridian = RS 100
+  // the two circles that define the quadrants
+  arcSplit(t=>world(t,0,1), 'globe equator');
+  arcSplit(t=>world(0,t,1), 'globe meridian');
   [-0.9,-0.45,0.45,0.9].forEach(f=>{
-    arc(t=>world(t, f*LAT, 1), 'globe faint');           // parallels
-    arc(t=>world(f*LON, t, 1), 'globe faint');           // meridians
+    arcSplit(t=>world(t, f*LAT, 1), 'globe faint');
+    arcSplit(t=>world(f*LON, t, 1), 'globe faint');
   });
 
-  // ── quadrant names, out on the shell where each one lives ────────────
-  const face=(lon,lat,txt,cls)=>{const q=P(...world(lon,lat,1.16));
-    out+=`<text class="qlabel halo ${cls}" x="${q.x.toFixed(1)}" y="${q.y.toFixed(1)}" text-anchor="middle">${txt}</text>`;};
-  face( LON*0.55,  LAT*0.55, 'LEADING',   'q-lead');
-  face( LON*0.55, -LAT*0.55, 'WEAKENING', 'q-weak');
-  face(-LON*0.55, -LAT*0.55, 'LAGGING',   'q-lag');
-  face(-LON*0.55,  LAT*0.55, 'IMPROVING', 'q-imp');
+  /* ── the globe body: four tinted quadrant faces ───────────────────────
+     This is what stops the far side showing through, and it does double duty.
+     A plain occluder would declutter but say nothing; shading each quadrant's
+     own face means the separation between quadrants IS the thing doing the
+     hiding. Face on, the near faces cover the far half and the map reads like
+     a flat RRG; rotate, and the faces turn away to reveal what was behind.
 
-  // ── the radial axis: centre to shell is the Z metric ─────────────────
-  const A=P(0,0,0), B=P(...world(0,0,1));
-  out+=`<line class="cross zax" x1="${A.x.toFixed(1)}" y1="${A.y.toFixed(1)}" x2="${B.x.toFixed(1)}" y2="${B.y.toFixed(1)}"/>`;
-  [0,0.5,1].forEach(f=>{
-    const r=R_FLOOR+(1-R_FLOOR)*f, q=P(...world(0,0,r));
-    out+=`<circle class="vtick" cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="2"/>`+
-         `<text class="tick halo" x="${q.x.toFixed(1)}" y="${(q.y-7).toFixed(1)}" text-anchor="middle">${Z.fmt(v0+(v1-v0)*f)}</text>`;
-  });
-  out+=`<circle class="origin" cx="${A.x.toFixed(1)}" cy="${A.y.toFixed(1)}" r="3"/>`;
-  out+=`<text class="axis" x="${W/2}" y="${H-8}" text-anchor="middle">longitude = RS-Ratio · latitude = RS-Momentum · radius from centre = ${Z.axis}</text>`;
+     A base disc sits underneath because the four faces only span the
+     +/-150 x +/-72 degree box, leaving the polar caps and the far gap
+     uncovered. */
+  const Oc=P(0,0,0);
+  const silR=Math.max(...probe.map(p=>Math.hypot(ox+k*p.x-Oc.x, oy+k*p.y-Oc.y)));
+  body=`<circle class="globe-body" cx="${Oc.x.toFixed(1)}" cy="${Oc.y.toFixed(1)}" r="${silR.toFixed(1)}"/>`;
 
-  // ── one thread per industry ──────────────────────────────────────────
-  if(view==='sectors'){
-    const groups={};
-    series.forEach(sx=>{ if(sx.industry) (groups[sx.industry] ||= []).push(sx); });
-    Object.entries(groups).forEach(([ind, members])=>{
-      if(members.length<2) return;
-      const col=INDUSTRY_COLOURS[ind]||'var(--text-dim)';
-      const pts=members
-        .map(sx=>({last:sx.tail[sx.tail.length-1], z:sx.z[sx.z.length-1]}))
-        .sort((a,b)=>a.last[0]-b.last[0])
-        .map(o=>xy(pt(o.last[0], o.last[1], o.z)));
-      out+=`<polyline class="ind-thread" points="${pts.join(' ')}" stroke="${col}"/>`;
-    });
-  }
+  const walk=(from,to,fn,out2)=>{const N=18;for(let i=0;i<=N;i++){out2.push(xy(P(...fn(from+(to-from)*i/N))));}};
+  const quadFace=(ls,lt,cls)=>{
+    const pts=[];
+    walk(0, ls*LON, u=>world(u, 0, 1), pts);                 // along the equator
+    walk(0, lt*LAT, u=>world(ls*LON, u, 1), pts);            // up the far meridian
+    walk(ls*LON, 0, u=>world(u, lt*LAT, 1), pts);            // back along the parallel
+    walk(lt*LAT, 0, u=>world(0, u, 1), pts);                 // down the prime meridian
+    return `<polygon class="quad-face ${cls}" points="${pts.join(' ')}"/>`;
+  };
+  body += quadFace( 1,  1, 'q-lead') + quadFace( 1, -1, 'q-weak')
+        + quadFace(-1, -1, 'q-lag')  + quadFace(-1,  1, 'q-imp');
 
-  // ── bubbles, far to near ─────────────────────────────────────────────
-  const drawn=series.map((s,i)=>{
-    const last=s.tail[s.tail.length-1], lv=s.z[s.z.length-1];
-    return {s, i, last, lv, p:pt(last[0],last[1],lv)};
-  }).sort((a,b)=>a.p.z-b.p.z);
+  // equator and meridian, named on the front where they can be read
+  const mark=(w,txt,cls)=>{const p=P(...w); if(p.z<0) return;
+    front+=`<text class="glabel halo ${cls}" x="${p.x.toFixed(1)}" y="${(p.y-6).toFixed(1)}" text-anchor="middle">${txt}</text>`;};
+  mark(world(LON*0.55,0,1.0), 'EQUATOR · momentum 100', 'eq');
+  mark(world(0,LAT*0.62,1.0), 'prime meridian · RS-Ratio 100', 'mer');
 
-  /* SIZE always reads volatility, whatever the radius is showing. Longitude,
-     latitude and radius are already spoken for, so size was the last free
-     channel, and spending it on a third copy of the radius would waste it: on
-     the absolute-return setting you now read distance-from-centre as the size
-     of the move and bubble size as the risk behind it, both at once. On the
-     volatility setting the two simply agree and reinforce each other. */
-  const volAll=series.flatMap(sx=>sx.vol||[]).filter(v=>v!=null);
-  const q0=volAll.length?Math.min(...volAll):0, q1=volAll.length?Math.max(...volAll):1;
-  const volN=v=>(v==null||q1-q0<1e-9)?0.5:clamp((v-q0)/(q1-q0),0,1);
+  const face=(lon,lat,txt,cls)=>{const p=P(...world(lon,lat,1.18));
+    put(p.z, `<text class="qlabel halo ${cls}${p.z<0?' far':''}" x="${p.x.toFixed(1)}" y="${p.y.toFixed(1)}" text-anchor="middle">${txt}</text>`);};
+  face( LON*0.5,  LAT*0.5, 'LEADING',   'q-lead');
+  face( LON*0.5, -LAT*0.5, 'WEAKENING', 'q-weak');
+  face(-LON*0.5, -LAT*0.5, 'LAGGING',   'q-lag');
+  face(-LON*0.5,  LAT*0.5, 'IMPROVING', 'q-imp');
 
-  drawn.forEach(({s,i,last,lv,p})=>{
-    const q=quadrant(last[0],last[1]), cls=quadCls(q);
-    const t=Math.sqrt(volN(s.vol && s.vol[s.vol.length-1]));
+  front+=`<circle class="origin" cx="${Oc.x.toFixed(1)}" cy="${Oc.y.toFixed(1)}" r="3"/>`;
+  front+=`<text class="tick halo" x="${Oc.x.toFixed(1)}" y="${(Oc.y+16).toFixed(1)}" text-anchor="middle">no conviction</text>`;
+  front+=`<text class="axis" x="${W/2}" y="${H-8}" text-anchor="middle">longitude = RS-Ratio · latitude = RS-Momentum · out from centre = conviction · size = ${Z.size}</text>`;
+
+  /* Industry threads were tried here and removed: with 23 sectors already
+     carrying trails, four more polylines through the same space made the
+     globe harder to read, not easier. Industry survives in the tooltip,
+     where it costs nothing. */
+
+  series.map((s,i)=>{
+    const last=s.tail[s.tail.length-1];
+    return {s, i, last, lv:s.z[s.z.length-1], p:pt(last[0],last[1])};
+  }).sort((a,b)=>a.p.z-b.p.z).forEach(({s,i,last,lv,p})=>{
+    const q=quadrant(last[0],last[1]), cls=quadCls(q), far=p.z<0;
+    const t=Math.sqrt(szN(lv));
     const r=(R_MIN+(R_MAX-R_MIN)*t)*(0.78+0.22*p.s)*(show?1:0.62)*Math.sqrt(zoom);
     const op=OP_MAX-(OP_MAX-OP_MIN)*t;
-
+    let g='';
     if(show && s.tail.length>1){
-      const path=s.tail.map(([rr,mm],j)=>xy(pt(rr,mm,s.z[j]))).join(' ');
-      out+=`<polyline class="trail t3 ${cls}" points="${path}"/>`;
+      const path=s.tail.map(([rr,mm])=>xy(pt(rr,mm))).join(' ');
+      g+=`<polyline class="trail t3 ${cls}${far?' far':''}" points="${path}"/>`;
     }
-    out+=`<circle class="sph ${cls}${s.cashOnly?' cash':''}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}"`+
-         ` r="${r.toFixed(1)}" fill="url(#sph-${cls})" fill-opacity="${op.toFixed(2)}"`+
-         ` data-i="${i}" tabindex="0"><title>${esc(s.name)} · RS ${last[0].toFixed(2)} · Mom ${last[1].toFixed(2)} · ${Z.name} ${Z.fmt(lv)} · vol ${((s.vol&&s.vol[s.vol.length-1])||0).toFixed(1)}% · ${q}</title></circle>`;
-    if(show) out+=`<text class="plabel halo" x="${(p.x+r+5).toFixed(1)}" y="${(p.y+4).toFixed(1)}">${esc(s.name)}</text>`;
+    g+=`<circle class="sph ${cls}${s.cashOnly?' cash':''}${far?' far':''}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}"`+
+       ` r="${r.toFixed(1)}" fill="url(#sph-${cls})" fill-opacity="${op.toFixed(2)}"`+
+       ` data-i="${i}" tabindex="0"><title>${esc(s.name)} · RS ${last[0].toFixed(2)} · Mom ${last[1].toFixed(2)} · ${q}`+
+       ` · conviction ${Math.hypot(last[0]-100,last[1]-100).toFixed(2)} · ${Z.name} ${Z.fmt(lv)}`+
+       `${s.industry?' · '+esc(s.industry):''}</title></circle>`;
+    if(show && !far) g+=`<text class="plabel halo" x="${(p.x+r+5).toFixed(1)}" y="${(p.y+4).toFixed(1)}">${esc(s.name)}</text>`;
+    put(p.z, g);
   });
 
-  svg.innerHTML=out;
+  svg.innerHTML = back + body + front;
   svg.querySelectorAll('.sph').forEach(el=>{
     el.addEventListener('mouseenter',e=>showTip(series[+el.dataset.i], e));
     el.addEventListener('mouseleave',hideTip);
@@ -514,19 +509,13 @@ function render3d(){
     el.addEventListener('blur',hideTip);
   });
 
-  const inds=[...new Set(series.map(sx=>sx.industry).filter(Boolean))];
-  const il=document.getElementById('indLegend');
-  il.innerHTML = (view==='sectors' && inds.length)
-    ? inds.map(i=>`<span class="ind-key"><span class="sw" style="background:${INDUSTRY_COLOURS[i]||'#888'}"></span>${i}</span>`).join('')
-    : '';
-  il.hidden = !(view==='sectors' && inds.length);
+  document.getElementById('indLegend').hidden = true;
 
-  const spread=vs.length?[Math.min(...vs),Math.max(...vs)]:[0,0];
   document.getElementById('sizeLegend').innerHTML =
-    `<span class="quad-key">distance from centre = <strong>&nbsp;${Z.axis}</strong></span>`+
-    `<span class="quad-key"><span class="sz sz-lo"></span>low volatility — small, opaque</span>`+
-    `<span class="quad-key"><span class="sz sz-hi"></span>high volatility — large, translucent</span>`+
-    `<span class="quad-key">on screen: <strong>&nbsp;${Z.fmt(spread[0])} … ${Z.fmt(spread[1])}</strong></span>`;
+    `<span class="quad-key"><strong>centre</strong>&nbsp;= on the crosshair, quadrant barely means anything</span>`+
+    `<span class="quad-key"><strong>shell</strong>&nbsp;= decisively in its quadrant</span>`+
+    `<span class="quad-key"><span class="sz sz-lo"></span>low ${Z.size} — small, opaque</span>`+
+    `<span class="quad-key"><span class="sz sz-hi"></span>high ${Z.size} — large, translucent</span>`;
 }
 
 /* ── rotation by drag / arrow keys ── */
@@ -568,7 +557,8 @@ function showTip(s,e){
     (s.vol&&s.vol.length?`<br>volatility ${s.vol[s.vol.length-1].toFixed(1)}% annualised`:'')+
     (s.basis!==undefined?`<br><span class="dim">equal-weight of ${s.basis} of ${s.count}</span>`:'')+
     (s.exOutliers&&s.exOutliers.length?`<br><span class="dim">excluding ${s.exOutliers.join(', ')}</span>`:'')+
-    (s.sector?`<br><span class="dim">${s.sector}${s.cashOnly?' · cash only':''}</span>`:'');
+    (s.sector?`<br><span class="dim">${s.sector}${s.cashOnly?' · cash only':''}</span>`:'')+
+    (s.industry?`<br><span class="dim">${s.industry}</span>`:'');
   const r=document.querySelector('.rrg-wrap').getBoundingClientRect();
   t.style.left=Math.min(r.width-190, Math.max(0, e.clientX-r.left+12))+'px';
   t.style.top=Math.max(0, e.clientY-r.top-10)+'px';

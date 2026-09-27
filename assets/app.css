@@ -544,3 +544,22 @@
 #chart .qlabel.q-lag { fill:var(--q-lag);  } #chart .qlabel.q-imp { fill:var(--q-imp);  }
 #chart .qlabel{ font-size:12px; font-weight:700; letter-spacing:0.12em; opacity:1; }
 #chart .qlabel.halo{ paint-order:stroke; stroke:var(--panel); stroke-width:3.5px; stroke-linejoin:round; }
+
+/* ── the globe's solid body ──────────────────────────────────────────────
+   A wireframe sphere is transparent, so the far half shows straight through
+   and both halves of every quadrant overlap - which is what made the map hard
+   to read. The body occludes it; the four tinted faces make the occluder
+   carry meaning, so the separation between quadrants is what does the hiding.
+   Far-side content is dimmed rather than dropped, so nothing pops in and out
+   as the globe turns. */
+#chart .globe-body{ fill:var(--bg); fill-opacity:0.82; stroke:none; }
+#chart .quad-face{ stroke:none; fill-opacity:0.16; }
+#chart .quad-face.q-lead{ fill:var(--q-lead); } #chart .quad-face.q-weak{ fill:var(--q-weak); }
+#chart .quad-face.q-lag { fill:var(--q-lag);  } #chart .quad-face.q-imp { fill:var(--q-imp);  }
+#chart .globe.equator{ opacity:1; stroke:var(--text); stroke-width:1.6; }
+#chart .globe.meridian{ opacity:0.85; stroke:var(--text-dim); stroke-width:1.4; }
+#chart .globe.far, #chart .qlabel.far, #chart .ind-thread.far{ opacity:0.16; }
+#chart .sph.far{ opacity:0.3; }
+#chart .trail.far{ opacity:0.05; }
+#chart .glabel{ font-size:9.5px; letter-spacing:0.08em; fill:var(--text-dim); }
+#chart .glabel.eq{ fill:var(--text); }
