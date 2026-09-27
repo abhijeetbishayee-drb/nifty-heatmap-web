@@ -34,6 +34,9 @@
       <button type="button" data-tail="4">4</button>
       <button type="button" data-tail="8">8</button>
       <button type="button" data-tail="12" class="active">12</button>
+      <span class="lbl" style="margin-left:10px;" id="basketLbl">Basket</span>
+      <button type="button" data-basket="all" class="active" id="bAll">All</button>
+      <button type="button" data-basket="ex" id="bEx">Ex-outliers</button>
       <span class="lbl" style="margin-left:10px;">Plot</span>
       <button type="button" data-dim="2" class="active">2D</button>
       <button type="button" data-dim="3">3D · vol</button>
@@ -69,6 +72,7 @@
 
   <div class="quad-legend" id="quadLegend"></div>
   <div class="quad-legend" id="sizeLegend" hidden></div>
+  <div class="footnote ca-note" id="basketNote" hidden></div>
 
   <div class="footnote">
     Each point is one security against <strong>NIFTY 50</strong>: horizontal is relative strength,
@@ -151,6 +155,7 @@ let DATA=null, view='sectors', period='daily', tail=12, sectorPick='__all__';
 /* 3D camera. Volatility is the depth axis, so at yaw=0 a more volatile name
    sits nearer the viewer; yaw/pitch are nudged off zero by default so the
    depth is visible at all. */
+let basket='all';
 let dim='2', zaxis='vol', yaw=-26*Math.PI/180, pitch=15*Math.PI/180;
 const HOME={yaw:-26*Math.PI/180, pitch:15*Math.PI/180};
 
@@ -159,7 +164,17 @@ document.getElementById('quadLegend').innerHTML = QUADS.map(q =>
 
 function activeSeries(){
   if(!DATA) return [];
-  if(view==='sectors') return DATA.sectors[period]||[];
+  if(view==='sectors'){
+    const secs=DATA.sectors[period]||[];
+    if(basket!=='ex') return secs;
+    /* Only 2 of 23 sectors have an outlier on a given day, so the rest fall
+       back to their ordinary basket and the two views agree wherever there is
+       nothing to see. */
+    return secs.map(s=>s.exTail
+      ? {...s, tail:s.exTail, vol:s.exVol, ret:s.exRet,
+         basis:s.exBasis, exOutliers:s.exOutliers}
+      : s);
+  }
   const all = DATA.stocks[period]||[];
   return sectorPick==='__all__' ? all : all.filter(s=>s.sector===sectorPick);
 }
@@ -481,6 +496,7 @@ function showTip(s,e){
     `RS-Ratio ${last[0].toFixed(2)} · RS-Mom ${last[1].toFixed(2)}`+
     (s.vol&&s.vol.length?`<br>volatility ${s.vol[s.vol.length-1].toFixed(1)}% annualised`:'')+
     (s.basis!==undefined?`<br><span class="dim">equal-weight of ${s.basis} of ${s.count}</span>`:'')+
+    (s.exOutliers&&s.exOutliers.length?`<br><span class="dim">excluding ${s.exOutliers.join(', ')}</span>`:'')+
     (s.sector?`<br><span class="dim">${s.sector}${s.cashOnly?' · cash only':''}</span>`:'');
   const r=document.querySelector('.rrg-wrap').getBoundingClientRect();
   t.style.left=Math.min(r.width-190, Math.max(0, e.clientX-r.left+12))+'px';
@@ -490,7 +506,12 @@ function showTip(s,e){
 function hideTip(){ document.getElementById('tip').hidden=true; }
 
 function syncChrome(){
+  const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   document.getElementById('sectorPickRow').hidden = (view!=='stocks');
+  const isSec = view==='sectors';
+  ['basketLbl','bAll','bEx'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.hidden = !isSec;
+  });
   document.getElementById('rotRow').hidden = (dim!=='3');
   document.getElementById('sizeLegend').hidden = (dim!=='3');
   const n=activeSeries().length;
@@ -508,7 +529,22 @@ function syncChrome(){
      rather than guessed at: plotted + excluded always equals the whole
      universe, and the build fails if it does not. */
   const u=(DATA&&DATA.universe&&DATA.universe[period])||null;
-  const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const withEx=((DATA&&DATA.sectors[period])||[]).filter(s=>s.exTail);
+  const exEl=document.getElementById('basketNote');
+  if(exEl){
+    exEl.hidden = view!=='sectors';
+    exEl.innerHTML = !withEx.length
+      ? `<strong>Ex-outliers:</strong> no constituent is far enough from both its sector and the
+         whole board to qualify on this timeframe, so every basket is unchanged.`
+      : `<strong>Ex-outliers</strong> rebuilds a basket without any constituent doing something
+         categorically different — beyond 3 MAD of its own sector <em>and</em> 4 robust sigma of
+         every name on the board. Both tests are needed: the sector test alone flags ordinary
+         names in tightly clustered sectors, and a fixed points-floor does not survive the move
+         from daily to weekly, where returns are spread about 2.3&times; wider. On this timeframe
+         it changes ${withEx.length} of ${(DATA.sectors[period]||[]).length} sectors: `
+        + withEx.map(x=>`<strong>${esc(x.name)}</strong> (without ${esc(x.exOutliers.join(', '))})`).join(', ')
+        + `. The excluded name keeps its own point on the Stocks view — nothing is hidden.`;
+  }
   document.getElementById('exclNote').innerHTML =
     (na.length ? na.map(e=>`<strong>${esc(e.name)}: NA</strong> — ${esc(e.reason)}.`).join(' ')+' ' : '')
     + (plain.length ? `Excluded on this timeframe: ${plain.map(e=>esc(e.name)).join(', ')}. ` : '')
@@ -536,6 +572,7 @@ wire('data-period', p=>{period=p;});
 wire('data-tail', t=>{tail=+t;});
 wire('data-dim', d=>{dim=d;});
 wire('data-z', z=>{zaxis=z;});
+wire('data-basket', b=>{basket=b;});
 document.getElementById('sectorPick').addEventListener('change',e=>{
   sectorPick=e.target.value; syncChrome(); render();
 });

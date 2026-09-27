@@ -27,7 +27,7 @@ from nifty_heatmap_core import (
 )
 from nifty_heatmap_core.rrg import (
     DAILY, WEEKLY, to_weekly, rrg_tail, equal_weight_series, min_bars, vol_tail,
-    ret_tail, apply_corporate_actions, CORPORATE_ACTIONS,
+    ret_tail, apply_corporate_actions, CORPORATE_ACTIONS, outlier_indices,
 )
 from nifty_heatmap_core.corporate_actions import table_status, upcoming
 
@@ -270,7 +270,14 @@ def main():
         sectors = []
         for sector, tickers in FNO_SECTORS.items():
             start = max(0, len(dates) - need)
-            cons, used, dropped = [], [], []
+            # Each constituent's own trailing return, on the same window and
+            # timeframe as the basket, is what the outlier test reads.
+            ret_by_ticker = {x["ticker"]: (x["ret"][-1] if x.get("ret") else None)
+                             for x in stocks}
+            # every constituent on the board, so the scale test calibrates
+            # itself to this timeframe instead of using a hard-coded floor
+            board_rets = [v for v in ret_by_ticker.values() if v is not None]
+            cons, used, dropped, cons_tickers = [], [], [], []
             for t in tickers:
                 a = aligned.get(t)
                 # keep only constituents present across the WHOLE window: a
@@ -279,6 +286,7 @@ def main():
                 if a is not None and a[1] <= start:
                     cons.append(a[0][start - a[1]:])
                     used.append(short_name(t))
+                    cons_tickers.append(t)
                 else:
                     dropped.append(short_name(t))
             tail, prepped = None, None
@@ -291,12 +299,33 @@ def main():
                 excluded.append({"name": sector, "kind": "sector",
                                  "reason": "no constituent covers the window"})
                 continue
-            sectors.append({"name": sector, "kind": "synthetic",
-                            "label": f"{sector} (equal-weight)",
-                            "count": len(tickers), "basis": len(used),
-                            "dropped": dropped, "tail": tail,
-                            "vol": vol_tail(prepped[0], cfg, len(tail)),
-                            "ret": ret_tail(prepped[0], cfg, len(tail))})
+            block = {"name": sector, "kind": "synthetic",
+                     "label": f"{sector} (equal-weight)",
+                     "count": len(tickers), "basis": len(used),
+                     "dropped": dropped, "tail": tail,
+                     "vol": vol_tail(prepped[0], cfg, len(tail)),
+                     "ret": ret_tail(prepped[0], cfg, len(tail))}
+
+            # Ex-outlier variant: the same basket with any constituent doing
+            # something categorically different left out. Emitted ONLY when
+            # there is one, so the page can fall back to the ordinary basket
+            # and the two views agree wherever nothing is going on.
+            ex = outlier_indices([ret_by_ticker.get(t) for t in cons_tickers],
+                                 board_rets)
+            if ex and len(cons) - len(ex) >= 2:
+                keep = [c for i, c in enumerate(cons) if i not in ex]
+                ex_synth = equal_weight_series(keep)
+                ex_prepped = prepare((ex_synth, start), bench_vals, weekly, dates) if ex_synth else None
+                ex_tail = points(ex_prepped, cfg)
+                if ex_tail:
+                    block.update({
+                        "exTail": ex_tail,
+                        "exVol": vol_tail(ex_prepped[0], cfg, len(ex_tail)),
+                        "exRet": ret_tail(ex_prepped[0], cfg, len(ex_tail)),
+                        "exBasis": len(keep),
+                        "exOutliers": [short_name(cons_tickers[i]) for i in ex],
+                    })
+            sectors.append(block)
 
         # Universe parity with the heatmap boards. Both read FNO_SECTORS from
         # the shared core, so they cannot drift by construction - but a name
