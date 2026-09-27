@@ -504,10 +504,17 @@ function syncChrome(){
      new, so it is reported as NA with the reason and a count that shows the
      note clearing itself as the window rolls forward. */
   const na=rows.filter(e=>e.ca), plain=rows.filter(e=>!e.ca);
+  /* Stated explicitly so the count can be reconciled against the F&O board
+     rather than guessed at: plotted + excluded always equals the whole
+     universe, and the build fails if it does not. */
+  const u=(DATA&&DATA.universe&&DATA.universe[period])||null;
   const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   document.getElementById('exclNote').innerHTML =
     (na.length ? na.map(e=>`<strong>${esc(e.name)}: NA</strong> — ${esc(e.reason)}.`).join(' ')+' ' : '')
-    + (plain.length ? `Excluded on this timeframe: ${plain.map(e=>esc(e.name)).join(', ')}. ` : '');
+    + (plain.length ? `Excluded on this timeframe: ${plain.map(e=>esc(e.name)).join(', ')}. ` : '')
+    + (u ? `<br>Same universe as the F&amp;O sector board: <strong>${u.total}</strong> names, `
+         + `${u.plotted} plotted and ${u.excluded} excluded above. The two boards read one `
+         + `shared list, and this build fails if any name is neither plotted nor explained.` : '');
   const secs=(DATA&&DATA.sectors[period])||[];
   const part=secs.filter(s=>s.basis<s.count);
   document.getElementById('basisNote').textContent = part.length

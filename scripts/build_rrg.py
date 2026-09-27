@@ -290,9 +290,32 @@ def main():
                             "vol": vol_tail(prepped[0], cfg, len(tail)),
                             "ret": ret_tail(prepped[0], cfg, len(tail))})
 
+        # Universe parity with the heatmap boards. Both read FNO_SECTORS from
+        # the shared core, so they cannot drift by construction - but a name
+        # could still fall through a gap in THIS script and simply vanish,
+        # which no one would notice on a 220-tile board. So every F&O name
+        # must be accounted for here: either plotted, or excluded WITH A
+        # REASON that the page prints. The counts may legitimately differ -
+        # a name without enough history to share the common normalisation
+        # window is excluded rather than plotted on a shorter one - but
+        # nothing may go missing silently.
+        accounted = ({s["ticker"] for s in stocks}
+                     | {e["ticker"] for e in excluded if e.get("ticker")})
+        missing = set(FNO_ALL) - accounted
+        if missing:
+            print(f"  ERROR: {len(missing)} F&O name(s) neither plotted nor "
+                  f"excluded on {period}: {sorted(short_name(t) for t in missing)}",
+                  file=sys.stderr)
+            sys.exit(1)
+
         out["stocks"][period] = stocks
         out["sectors"][period] = sectors
         out["excluded"][period] = excluded
+        out.setdefault("universe", {})[period] = {
+            "total": len(FNO_ALL),
+            "plotted": len(stocks),
+            "excluded": len([e for e in excluded if e.get("ticker")]),
+        }
         print(f"  {period:6}: {len(sectors)} sectors, {len(stocks)} stocks, "
               f"{len(excluded)} excluded")
 
