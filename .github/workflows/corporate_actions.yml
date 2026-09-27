@@ -1,0 +1,44 @@
+name: Check upcoming corporate actions
+
+# The live heatmap path only works if an action is in CORPORATE_ACTIONS BEFORE
+# its ex-date - a snapshot gets one chance at a name's ex-date, and an entry
+# added the next day buys nothing. The build-time warnings say whether the
+# table is armed; they cannot say what is COMING. This closes that.
+#
+# The job FAILS when an action needs an entry, because a failed workflow sends
+# a notification and a passing one with a buried log line does not. A green run
+# means there is genuinely nothing to do.
+#
+# Weekly is the right cadence: NSE's corporate-action file looks about 11 days
+# ahead, so a weekly run gives one to two weeks of notice. GitHub throttles
+# scheduled workflows by up to a couple of hours, which is irrelevant at this
+# cadence (unlike the per-minute price job, which needs an external pinger).
+
+on:
+  schedule:
+    - cron: '30 3 * * 0'     # 09:00 IST Sunday, before the trading week
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: corporate-actions
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Scan NSE corporate actions against CORPORATE_ACTIONS
+        run: python scripts/check_corporate_actions.py
