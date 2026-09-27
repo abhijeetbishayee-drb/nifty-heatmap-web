@@ -335,7 +335,9 @@ function render3d(){
     : `nothing has a full ${Z.name} window on this timeframe`;
   if(!series.length){ svg.innerHTML=''; return; }
 
-  const show=detailed(series);
+  /* Zooming in is how you ask for detail, so names appear as you go in even
+     on the all-stocks view where 220 labels at once would be unreadable. */
+  const show=detailed(series) || zoom >= 1.5;
 
   // ── world normalisation: RS/Mom centred on 100, vol over its own range ──
   const xs=[], ys=[], vs=[];
