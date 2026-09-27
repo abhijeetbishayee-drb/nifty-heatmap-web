@@ -563,3 +563,12 @@
 #chart .trail.far{ opacity:0.05; }
 #chart .glabel{ font-size:9.5px; letter-spacing:0.08em; fill:var(--text-dim); }
 #chart .glabel.eq{ fill:var(--text); }
+
+/* Click-to-isolate: the unchosen names stay present but recede, so the globe
+   keeps its shape and you can still see where the industry sits relative to
+   everything else - dropping them entirely would lose that context. */
+#chart .sph.muted{ opacity:0.1; }
+#chart .plabel.muted{ opacity:0.12; }
+#chart .sph.picked{ stroke:var(--text); stroke-width:2.2; }
+#chart.d3{ cursor:grab; }
+#chart.d3 .sph{ cursor:pointer; }

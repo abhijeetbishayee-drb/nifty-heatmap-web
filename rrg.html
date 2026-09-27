@@ -286,6 +286,12 @@ const INDUSTRY_COLOURS = {
   'Healthcare & Technology': '#3fb08a',
 };
 let zoom = 1;               // scroll wheel; clamped in the handler
+/* Click-to-isolate. At rest the globe shows position only - 23 sectors each
+   trailing 12 periods was the clutter. Clicking a bubble picks its INDUSTRY:
+   that industry keeps full colour and gets its trails and its connecting
+   thread back, everything else drops away. Click it again, or anywhere off a
+   bubble, to clear. */
+let focusInd = null, focusName = null;
 
 const CAM_D = 3.4;          // camera distance in world units
 const Z_HALF = 0.85;        // depth half-extent of the data
@@ -474,35 +480,67 @@ function render3d(){
   front+=`<text class="tick halo" x="${Oc.x.toFixed(1)}" y="${(Oc.y+16).toFixed(1)}" text-anchor="middle">no conviction</text>`;
   front+=`<text class="axis" x="${W/2}" y="${H-8}" text-anchor="middle">longitude = RS-Ratio · latitude = RS-Momentum · out from centre = conviction · size = ${Z.size}</text>`;
 
-  /* Industry threads were tried here and removed: with 23 sectors already
-     carrying trails, four more polylines through the same space made the
-     globe harder to read, not easier. Industry survives in the tooltip,
-     where it costs nothing. */
+  /* The industry thread is drawn ONLY for the industry in focus. Shown for
+     all four at once it was four more polylines through a space already full
+     of trails; shown for one, it is the thing that lets that industry be
+     followed through a rotation. */
+  /* STOCKS VIEW ONLY. In the sector map a thread joins at most a handful of
+     big points and reads as clutter, so there are no connecting lines there
+     at all - clicking still isolates the industry, it just does it by
+     dimming. Among stocks the line is what makes an industry followable. */
+  if(focusInd && view==='stocks'){
+    const mem=series.filter(sx=>sx.industry===focusInd);
+    if(mem.length>1){
+      const col=INDUSTRY_COLOURS[focusInd]||'var(--text-dim)';
+      const seq=mem.map(sx=>({last:sx.tail[sx.tail.length-1]})).sort((a,b)=>a.last[0]-b.last[0]);
+      for(let i=1;i<seq.length;i++){
+        const A=pt(seq[i-1].last[0],seq[i-1].last[1]), B=pt(seq[i].last[0],seq[i].last[1]);
+        const dep=(A.z+B.z)/2;
+        put(dep, `<line class="ind-thread${dep<0?' far':''}" x1="${A.x.toFixed(1)}" y1="${A.y.toFixed(1)}" x2="${B.x.toFixed(1)}" y2="${B.y.toFixed(1)}" stroke="${col}"/>`);
+      }
+    }
+  }
 
   series.map((s,i)=>{
     const last=s.tail[s.tail.length-1];
     return {s, i, last, lv:s.z[s.z.length-1], p:pt(last[0],last[1])};
   }).sort((a,b)=>a.p.z-b.p.z).forEach(({s,i,last,lv,p})=>{
     const q=quadrant(last[0],last[1]), cls=quadCls(q), far=p.z<0;
+    const onStage = !focusInd || s.industry===focusInd;
+    const isPick  = focusName && s.name===focusName;
     const t=Math.sqrt(szN(lv));
     const r=(R_MIN+(R_MAX-R_MIN)*t)*(0.78+0.22*p.s)*(show?1:0.62)*Math.sqrt(zoom);
     const op=OP_MAX-(OP_MAX-OP_MIN)*t;
     let g='';
-    if(show && s.tail.length>1){
+    // trails are the clutter, so they appear only for the industry in focus
+    if(onStage && focusInd && s.tail.length>1){
       const path=s.tail.map(([rr,mm])=>xy(pt(rr,mm))).join(' ');
       g+=`<polyline class="trail t3 ${cls}${far?' far':''}" points="${path}"/>`;
     }
-    g+=`<circle class="sph ${cls}${s.cashOnly?' cash':''}${far?' far':''}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}"`+
+    g+=`<circle class="sph ${cls}${s.cashOnly?' cash':''}${far?' far':''}${onStage?'':' muted'}${isPick?' picked':''}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}"`+
        ` r="${r.toFixed(1)}" fill="url(#sph-${cls})" fill-opacity="${op.toFixed(2)}"`+
        ` data-i="${i}" tabindex="0"><title>${esc(s.name)} · RS ${last[0].toFixed(2)} · Mom ${last[1].toFixed(2)} · ${q}`+
        ` · conviction ${Math.hypot(last[0]-100,last[1]-100).toFixed(2)} · ${Z.name} ${Z.fmt(lv)}`+
        `${s.industry?' · '+esc(s.industry):''}</title></circle>`;
-    if(show && !far) g+=`<text class="plabel halo" x="${(p.x+r+5).toFixed(1)}" y="${(p.y+4).toFixed(1)}">${esc(s.name)}</text>`;
+    // in focus mode only the chosen industry keeps its names
+    if(!far && (focusInd ? onStage : show))
+      g+=`<text class="plabel halo${onStage?'':' muted'}" x="${(p.x+r+5).toFixed(1)}" y="${(p.y+4).toFixed(1)}">${esc(s.name)}</text>`;
     put(p.z, g);
   });
 
   svg.innerHTML = back + body + front;
+  svg.addEventListener('click', e=>{
+    if(e.target.classList && e.target.classList.contains('sph')) return;
+    if(focusInd){ focusInd=null; focusName=null; hideTip(); render3d(); }
+  });
   svg.querySelectorAll('.sph').forEach(el=>{
+    el.addEventListener('click', e=>{
+      e.stopPropagation();
+      const s0=series[+el.dataset.i];
+      if(focusName===s0.name){ focusInd=null; focusName=null; }
+      else { focusInd=s0.industry||null; focusName=s0.name; }
+      hideTip(); render3d();
+    });
     el.addEventListener('mouseenter',e=>showTip(series[+el.dataset.i], e));
     el.addEventListener('mouseleave',hideTip);
     el.addEventListener('focus',e=>showTip(series[+el.dataset.i], e));
@@ -512,6 +550,9 @@ function render3d(){
   document.getElementById('indLegend').hidden = true;
 
   document.getElementById('sizeLegend').innerHTML =
+    (focusInd
+      ? `<span class="quad-key"><strong>${focusInd}</strong>&nbsp;isolated — click it again, or any empty space, to clear</span>`
+      : `<span class="quad-key">click a bubble to isolate its industry${view==='stocks'?' and link it':''}</span>`)+
     `<span class="quad-key"><strong>centre</strong>&nbsp;= on the crosshair, quadrant barely means anything</span>`+
     `<span class="quad-key"><strong>shell</strong>&nbsp;= decisively in its quadrant</span>`+
     `<span class="quad-key"><span class="sz sz-lo"></span>low ${Z.size} — small, opaque</span>`+
@@ -624,6 +665,11 @@ function wire(attr, fn){
   document.querySelectorAll(`.controls button[${attr}]`).forEach(b=>{
     b.addEventListener('click',()=>{
       document.querySelectorAll(`.controls button[${attr}]`).forEach(o=>o.classList.toggle('active',o===b));
+      /* Any control that changes WHAT is plotted clears the isolation: the
+         industry's members differ between sectors and stocks, and carrying a
+         stale focus across meant the next view opened already filtered with
+         no visible reason why. */
+      focusInd=null; focusName=null;
       fn(b.getAttribute(attr)); syncChrome(); render();
     });
   });
@@ -635,7 +681,7 @@ wire('data-dim', d=>{dim=d;});
 wire('data-z', z=>{zaxis=z;});
 wire('data-basket', b=>{basket=b;});
 document.getElementById('sectorPick').addEventListener('change',e=>{
-  sectorPick=e.target.value; syncChrome(); render();
+  sectorPick=e.target.value; focusInd=null; focusName=null; syncChrome(); render();
 });
 
 async function load(){
