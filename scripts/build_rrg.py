@@ -238,7 +238,10 @@ def main():
                                   "this company's own history to compare it "
                                   "with its peers")
                     else:
-                        reason = "insufficient history"
+                        have = len(prepped[0]) if prepped else 0
+                        unit = "weekly bars" if weekly else "daily bars"
+                        reason = (f"only {have} of the {min_bars(cfg)} "
+                                  f"{unit} every symbol is normalised over")
                     excluded.append({"name": short_name(t), "ticker": t,
                                      "sector": sector, "reason": reason,
                                      "ca": bool(note and note["kind"] == "economic")})
@@ -258,7 +261,12 @@ def main():
         # - which would put non-comparable points on one chart, the same error
         # as mixing normalisation windows - EVERY sector uses the same
         # equal-weighted construction.
-        need = min_bars(cfg) + 20 if not weekly else min_bars(cfg) * 5 + 60
+        # Same bar requirement as an individual stock, deliberately: if a
+        # name is good enough to plot on its own, it is good enough to sit in
+        # its sector's basket. An extra margin here only produced the odd
+        # result that MEESHO appeared as a point but was missing from the New
+        # Age basket drawn beside it.
+        need = min_bars(cfg) if not weekly else min_bars(cfg) * 5 + 60
         sectors = []
         for sector, tickers in FNO_SECTORS.items():
             start = max(0, len(dates) - need)
