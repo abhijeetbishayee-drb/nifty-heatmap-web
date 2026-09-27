@@ -481,3 +481,27 @@
   background:var(--panel); color:var(--text); cursor:pointer;
 }
 .controls select:focus-visible{ outline:2px solid var(--info); outline-offset:2px; }
+
+/* ── RRG 3D view ─────────────────────────────────────────────────────────
+   Volatility is the depth axis. Size is driven by volatility itself rather
+   than by perspective alone, so the reading survives rotation; the inverse
+   opacity is what keeps the big front spheres from hiding the small ones. */
+#chart.d3{ cursor:grab; touch-action:none; }
+#chart.d3:active{ cursor:grabbing; }
+#chart .box{ stroke:var(--border); stroke-width:1; opacity:0.55; fill:none; }
+#chart .cross.zax{ stroke-dasharray:4 3; opacity:0.55; }
+#chart .vtick{ fill:var(--text-dim); }
+#chart .stem{ stroke-width:1; opacity:0.38; }
+#chart .stem.q-lead{ stroke:var(--q-lead); } #chart .stem.q-weak{ stroke:var(--q-weak); }
+#chart .stem.q-lag { stroke:var(--q-lag);  } #chart .stem.q-imp { stroke:var(--q-imp);  }
+#chart .shadow{ fill:var(--text-dim); opacity:0.3; }
+#chart .sph{ stroke:var(--panel); stroke-width:1; cursor:pointer; }
+#chart .sph.cash{ stroke:var(--text-dim); stroke-width:1.4; stroke-dasharray:3 3; }
+#chart .sph:hover{ stroke:var(--text); stroke-width:1.6; }
+#chart .sph:focus-visible{ outline:2px solid var(--info); }
+.quad-key .sz{ border-radius:50%; background:var(--text-dim); }
+.quad-key .sz-lo{ width:8px;  height:8px;  opacity:0.95; }
+.quad-key .sz-hi{ width:17px; height:17px; opacity:0.36; }
+#chart .trail.t3{ stroke-width:1.1; opacity:0.22; }
+#chart .plabel.halo{ paint-order:stroke; stroke:var(--panel); stroke-width:3px; stroke-linejoin:round; }
+#chart .tick.halo, #chart .axis.halo{ paint-order:stroke; stroke:var(--panel); stroke-width:3px; stroke-linejoin:round; }

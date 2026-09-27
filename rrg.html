@@ -34,6 +34,9 @@
       <button type="button" data-tail="4">4</button>
       <button type="button" data-tail="8">8</button>
       <button type="button" data-tail="12" class="active">12</button>
+      <span class="lbl" style="margin-left:10px;">Plot</span>
+      <button type="button" data-dim="2" class="active">2D</button>
+      <button type="button" data-dim="3">3D · vol</button>
     </div>
     <div class="status" id="statusTag"><span class="live-dot"></span><span id="statusText">Loading…</span></div>
   </div>
@@ -46,6 +49,15 @@
     </div>
   </div>
 
+  <div class="meta-row" id="rotRow" hidden>
+    <div class="controls">
+      <span class="lbl">Drag the chart to rotate</span>
+      <button type="button" id="resetView">Reset view</button>
+      <button type="button" id="faceOn">Face on</button>
+      <span class="lbl" id="volHint"></span>
+    </div>
+  </div>
+
   <div class="rrg-wrap">
     <svg id="chart" viewBox="0 0 1000 620" preserveAspectRatio="xMidYMid meet" role="img"
          aria-label="Relative rotation graph"></svg>
@@ -53,6 +65,7 @@
   </div>
 
   <div class="quad-legend" id="quadLegend"></div>
+  <div class="quad-legend" id="sizeLegend" hidden></div>
 
   <div class="footnote">
     Each point is one security against <strong>NIFTY 50</strong>: horizontal is relative strength,
@@ -75,6 +88,24 @@
     sounds: the same stock on the same day lands in a different spot if normalised over a different
     amount of history, so anything without enough history is excluded rather than rescaled.
     <span id="exclNote"></span>
+    <br><br>
+    <strong>The 3D view puts volatility on the depth axis.</strong> RRG has no
+    natural third axis — RS-Momentum is already the derivative of RS-Ratio, so the two
+    are a matched pair and anything on Z is a different measure bolted on. Volatility is
+    that measure here: trailing realised volatility, annualised, one reading per tail point,
+    so the trail moves in depth too rather than implying volatility held still. It answers
+    what the flat plot cannot — how much risk is behind a given relative strength.
+    Sphere size is driven by volatility directly, not by perspective alone, so
+    <em>bigger = more volatile</em> still holds after you rotate the chart; larger spheres
+    are drawn more translucent so the volatile names in front don't hide the quiet ones
+    behind them. Depth is still harder to read than a flat position, which is why this is a
+    toggle beside the 2D board and not a replacement for it — the quadrant call should be
+    made on the 2D plot.
+    <br><br>
+    One caveat the 3D view does <em>not</em> fix: RRG is purely relative, so a name can sit
+    in Leading while falling in absolute terms — beating the benchmark on the way down.
+    Volatility on Z says nothing about that.
+    <br><br>
     RRG is a relative-strength tool, not a standalone buy/sell signal.
   </div>
 </div>
@@ -92,6 +123,12 @@ function quadCls(q){ return (QUADS.find(x=>x.key===q)||QUADS[2]).cls; }
 
 let DATA=null, view='sectors', period='daily', tail=12, sectorPick='__all__';
 
+/* 3D camera. Volatility is the depth axis, so at yaw=0 a more volatile name
+   sits nearer the viewer; yaw/pitch are nudged off zero by default so the
+   depth is visible at all. */
+let dim='2', yaw=-26*Math.PI/180, pitch=15*Math.PI/180;
+const HOME={yaw:-26*Math.PI/180, pitch:15*Math.PI/180};
+
 document.getElementById('quadLegend').innerHTML = QUADS.map(q =>
   `<span class="quad-key"><span class="sw ${q.cls}"></span>${q.label}<em>${q.hint}</em></span>`).join('');
 
@@ -107,6 +144,12 @@ function activeSeries(){
 function detailed(series){ return !(view==='stocks' && sectorPick==='__all__'); }
 
 function render(){
+  hideTip();
+  document.getElementById('chart').classList.toggle('d3', dim==='3');
+  return dim==='3' ? render3d() : render2d();
+}
+
+function render2d(){
   const svg=document.getElementById('chart');
   const series=activeSeries();
   if(!series.length){ svg.innerHTML=''; return; }
@@ -175,11 +218,212 @@ function render(){
   });
 }
 
+
+/* ────────────────────────── 3D view ──────────────────────────
+   X = RS-Ratio, Y = RS-Momentum, Z = trailing realised volatility.
+
+   RRG has no natural third axis - RS-Momentum is already the derivative of
+   RS-Ratio, so the two are a matched pair and anything on Z is a different
+   measure bolted on. Volatility is that measure here: it answers "how much
+   risk am I taking for this relative strength", which the 2D plot cannot say.
+
+   Sphere radius is driven by volatility DIRECTLY, not by perspective alone, so
+   "bigger = more volatile" still holds after the chart is rotated; perspective
+   only modulates it slightly. Bigger spheres are drawn more translucent so the
+   volatile names in front do not hide the quiet ones behind them - which is the
+   usual objection to 3D scatter plots, and the reason this sits alongside the
+   2D board rather than replacing it. */
+
+const CAM_D = 3.4;          // camera distance in world units
+const Z_HALF = 0.85;        // depth half-extent of the plot box
+const R_MIN = 5, R_MAX = 21;
+const OP_MIN = 0.34, OP_MAX = 0.93;   // large -> translucent, small -> opaque
+
+function rot(wx, wy, wz){
+  const ca=Math.cos(yaw), sa=Math.sin(yaw);
+  const x1 =  wx*ca + wz*sa;
+  const z1 = -wx*sa + wz*ca;
+  const cb=Math.cos(pitch), sb=Math.sin(pitch);
+  const y2 = wy*cb - z1*sb;
+  const z2 = wy*sb + z1*cb;
+  const s  = CAM_D/(CAM_D - z2);
+  return {x:x1*s, y:-y2*s, z:z2, s};
+}
+
+function render3d(){
+  const svg=document.getElementById('chart');
+  const W=1000, H=620;
+
+  /* vol is null when a symbol lacks a full volatility window at every tail
+     point; a partial window would make its earliest points noisier than its
+     latest, so it is dropped from 3D rather than plotted on a short window. */
+  const series=activeSeries()
+    .map(s=>({...s, tail:s.tail.slice(-tail), vol:(s.vol||[]).slice(-tail)}))
+    .filter(s=>s.vol.length===s.tail.length && s.vol.every(v=>v!=null));
+  const novol=activeSeries().length - series.length;
+  document.getElementById('volHint').textContent = series.length
+    ? `${series.length} plotted${novol?` · ${novol} without a full volatility window`:''}`
+    : 'nothing has a full volatility window on this timeframe';
+  if(!series.length){ svg.innerHTML=''; return; }
+
+  const show=detailed(series);
+
+  // ── world normalisation: RS/Mom centred on 100, vol over its own range ──
+  const xs=[], ys=[], vs=[];
+  series.forEach(s=>{ s.tail.forEach(([r,m])=>{xs.push(r);ys.push(m);}); s.vol.forEach(v=>vs.push(v)); });
+  const sym=arr=>{ const d=Math.max(0.25,...arr.map(v=>Math.abs(v-100)))*1.1; return [100-d,100+d]; };
+  const [x0,x1]=sym(xs), [y0,y1]=sym(ys);
+  let v0=Math.min(...vs), v1=Math.max(...vs);
+  if(v1-v0 < 1e-6){ v0-=1; v1+=1; }
+  const nx=v=>(v-100)/((x1-x0)/2), ny=v=>(v-100)/((y1-y0)/2);
+  const nz=v=>(-1+2*(v-v0)/(v1-v0))*Z_HALF;   // low vol at the back
+  const nvol=v=>(v-v0)/(v1-v0);               // 0..1, drives radius + opacity
+
+  // ── auto-fit: project everything at unit scale, then scale to the frame ──
+  const probe=[];
+  for(const bx of [-1,1]) for(const by of [-1,1]) for(const bz of [-Z_HALF,Z_HALF]) probe.push(rot(bx,by,bz));
+  series.forEach(s=>s.tail.forEach(([r,m],i)=>probe.push(rot(nx(r),ny(m),nz(s.vol[i])))));
+  const bx0=Math.min(...probe.map(p=>p.x)), bx1=Math.max(...probe.map(p=>p.x));
+  const by0=Math.min(...probe.map(p=>p.y)), by1=Math.max(...probe.map(p=>p.y));
+  const M=58;   // room for labels and for the largest sphere
+  const k=Math.min((W-2*M)/Math.max(bx1-bx0,1e-6), (H-2*M)/Math.max(by1-by0,1e-6));
+  const ox=W/2-k*(bx0+bx1)/2, oy=H/2-k*(by0+by1)/2;
+  const P=(wx,wy,wz)=>{ const p=rot(wx,wy,wz); return {x:ox+k*p.x, y:oy+k*p.y, z:p.z, s:p.s}; };
+  const pt=(r,m,v)=>P(nx(r),ny(m),nz(v));
+
+  const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const xy=p=>`${p.x.toFixed(1)},${p.y.toFixed(1)}`;
+  let out='';
+
+  // sphere shading: one gradient per quadrant colour
+  out+='<defs>'+QUADS.map(q=>
+    `<radialGradient id="sph-${q.cls}" cx="34%" cy="28%" r="72%">`+
+    `<stop offset="0%" stop-color="#ffffff" stop-opacity="0.72"/>`+
+    `<stop offset="42%" stop-color="var(--${q.cls})"/>`+
+    `<stop offset="100%" stop-color="var(--${q.cls})" stop-opacity="0.82"/>`+
+    `</radialGradient>`).join('')+'</defs>';
+
+  // ── back plane (lowest volatility) carries the quadrants and the grid ──
+  const BZ=-Z_HALF;
+  const plane=(ax,ay,bx,by)=>[P(ax,ay,BZ),P(bx,ay,BZ),P(bx,by,BZ),P(ax,by,BZ)].map(xy).join(' ');
+  out+=`<polygon class="q-lead" points="${plane(0,0,1,1)}"/>`;
+  out+=`<polygon class="q-weak" points="${plane(0,0,1,-1)}"/>`;
+  out+=`<polygon class="q-lag"  points="${plane(0,0,-1,-1)}"/>`;
+  out+=`<polygon class="q-imp"  points="${plane(0,0,-1,1)}"/>`;
+
+  const ticks=(lo,hi)=>[lo+(hi-lo)*0.12, (lo+hi)/2, hi-(hi-lo)*0.12].map(v=>+v.toFixed(2));
+  /* Rotation moves a box edge into the interior, so a tick label pinned to it
+     ends up floating over the data. Push each label outward along the edge's
+     own direction instead - that stays correct at every angle. */
+  const outward=(a,from,d)=>{
+    const dx=a.x-from.x, dy=a.y-from.y, L=Math.hypot(dx,dy)||1;
+    return {x:a.x+dx/L*d, y:a.y+dy/L*d};
+  };
+  const label=(l,txt)=>`<text class="tick halo" x="${l.x.toFixed(1)}" y="${(l.y+3.5).toFixed(1)}" text-anchor="middle">${txt}</text>`;
+
+  ticks(x0,x1).forEach(v=>{const a=pt(v,y0,v0),b=pt(v,y1,v0);
+    out+=`<line class="grid" x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}"/>`+
+         label(outward(a,b,30), v.toFixed(2));});
+  ticks(y0,y1).forEach(v=>{const a=pt(x0,v,v0),b=pt(x1,v,v0);
+    out+=`<line class="grid" x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}"/>`+
+         label(outward(a,b,32), v.toFixed(2));});
+
+  // crosshair on the back plane, and the 100/100 line running through depth
+  out+=`<line class="cross" x1="${pt(100,y0,v0).x.toFixed(1)}" y1="${pt(100,y0,v0).y.toFixed(1)}" x2="${pt(100,y1,v0).x.toFixed(1)}" y2="${pt(100,y1,v0).y.toFixed(1)}"/>`;
+  out+=`<line class="cross" x1="${pt(x0,100,v0).x.toFixed(1)}" y1="${pt(x0,100,v0).y.toFixed(1)}" x2="${pt(x1,100,v0).x.toFixed(1)}" y2="${pt(x1,100,v0).y.toFixed(1)}"/>`;
+  out+=`<line class="cross zax" x1="${pt(100,100,v0).x.toFixed(1)}" y1="${pt(100,100,v0).y.toFixed(1)}" x2="${pt(100,100,v1).x.toFixed(1)}" y2="${pt(100,100,v1).y.toFixed(1)}"/>`;
+
+  // ── volatility axis: bottom-left depth edge, ticked in % ──
+  const vt=[v0,(v0+v1)/2,v1];
+  out+=`<line class="box" x1="${pt(x0,y0,v0).x.toFixed(1)}" y1="${pt(x0,y0,v0).y.toFixed(1)}" x2="${pt(x0,y0,v1).x.toFixed(1)}" y2="${pt(x0,y0,v1).y.toFixed(1)}"/>`;
+  vt.forEach(v=>{const a=pt(x0,y0,v), inner=pt(x1,y1,v);
+    out+=`<circle class="vtick" cx="${a.x.toFixed(1)}" cy="${a.y.toFixed(1)}" r="2"/>`+
+         label(outward(a,inner,20), v.toFixed(0)+'%');});
+  const vmid=outward(pt(x0,y0,(v0+v1)/2), pt(x1,y1,(v0+v1)/2), 44);
+  out+=`<text class="axis halo" x="${vmid.x.toFixed(1)}" y="${vmid.y.toFixed(1)}" text-anchor="middle">volatility</text>`;
+
+  // ── box wireframe, so the orientation stays legible while rotating ──
+  const C=[];
+  for(const bxx of [-1,1]) for(const byy of [-1,1]) for(const bzz of [-Z_HALF,Z_HALF]) C.push(P(bxx,byy,bzz));
+  const E=[[0,1],[2,3],[4,5],[6,7],[0,2],[1,3],[4,6],[5,7],[0,4],[1,5],[2,6],[3,7]];
+  E.forEach(([a,b])=>{out+=`<line class="box" x1="${C[a].x.toFixed(1)}" y1="${C[a].y.toFixed(1)}" x2="${C[b].x.toFixed(1)}" y2="${C[b].y.toFixed(1)}"/>`;});
+
+  out+=`<text class="axis" x="${W/2}" y="${H-8}" text-anchor="middle">RS-Ratio · RS-Momentum on the shaded plane — depth is volatility</text>`;
+
+  // ── spheres, far to near, so the big translucent ones land on top ──
+  const drawn=series.map((s,i)=>{
+    const last=s.tail[s.tail.length-1], lv=s.vol[s.vol.length-1];
+    return {s, i, last, lv, p:pt(last[0],last[1],lv)};
+  }).sort((a,b)=>a.p.z-b.p.z);
+
+  drawn.forEach(({s,i,last,lv,p})=>{
+    const q=quadrant(last[0],last[1]), cls=quadCls(q);
+    /* Area, not radius, is what the eye reads off a bubble, so radius takes
+       the square root of the normalised volatility. It is also what keeps one
+       81%-vol name from flattening the other 223 into identical specks. */
+    const t=Math.sqrt(nvol(lv));
+    const r=(R_MIN+(R_MAX-R_MIN)*t)*(0.78+0.22*p.s)*(show?1:0.62);
+    const op=OP_MAX-(OP_MAX-OP_MIN)*t;
+
+    if(show && s.tail.length>1){
+      const path=s.tail.map(([rr,mm],j)=>xy(pt(rr,mm,s.vol[j]))).join(' ');
+      out+=`<polyline class="trail t3 ${cls}" points="${path}"/>`;
+    }
+    // stem back to the volatility-floor plane: without it the depth of a
+    // sphere is unreadable, and its RS/Momentum position is the whole point
+    const foot=pt(last[0],last[1],v0);
+    out+=`<line class="stem ${cls}" x1="${p.x.toFixed(1)}" y1="${p.y.toFixed(1)}" x2="${foot.x.toFixed(1)}" y2="${foot.y.toFixed(1)}"/>`;
+    out+=`<circle class="shadow" cx="${foot.x.toFixed(1)}" cy="${foot.y.toFixed(1)}" r="2.4"/>`;
+
+    out+=`<circle class="sph ${cls}${s.cashOnly?' cash':''}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}"`+
+         ` r="${r.toFixed(1)}" fill="url(#sph-${cls})" fill-opacity="${op.toFixed(2)}"`+
+         ` data-i="${i}" tabindex="0"><title>${esc(s.name)} · RS ${last[0].toFixed(2)} · Mom ${last[1].toFixed(2)} · vol ${lv.toFixed(1)}% · ${q}</title></circle>`;
+    if(show) out+=`<text class="plabel halo" x="${(p.x+r+5).toFixed(1)}" y="${(p.y+4).toFixed(1)}">${esc(s.name)}</text>`;
+  });
+
+  svg.innerHTML=out;
+  svg.querySelectorAll('.sph').forEach(el=>{
+    el.addEventListener('mouseenter',e=>showTip(series[+el.dataset.i], e));
+    el.addEventListener('mouseleave',hideTip);
+    el.addEventListener('focus',e=>showTip(series[+el.dataset.i], e));
+    el.addEventListener('blur',hideTip);
+  });
+
+  document.getElementById('sizeLegend').innerHTML =
+    `<span class="quad-key"><span class="sz sz-lo"></span>low volatility — small, opaque, at the back</span>`+
+    `<span class="quad-key"><span class="sz sz-hi"></span>high volatility — large, translucent, toward you</span>`+
+    `<span class="quad-key">range on screen: <strong>&nbsp;${v0.toFixed(0)}%–${v1.toFixed(0)}%</strong> annualised</span>`;
+}
+
+/* ── rotation by drag / arrow keys ── */
+(function(){
+  const svg=document.getElementById('chart');
+  let drag=null;
+  const start=(x,y)=>{ drag={x,y,yaw,pitch}; hideTip(); };
+  const move=(x,y)=>{
+    if(!drag) return;
+    yaw = drag.yaw + (x-drag.x)*0.006;
+    pitch = Math.max(-1.35, Math.min(1.35, drag.pitch - (y-drag.y)*0.006));
+    render3d();
+  };
+  const end=()=>{ drag=null; };
+  svg.addEventListener('pointerdown',e=>{ if(dim!=='3') return;
+    svg.setPointerCapture(e.pointerId); start(e.clientX,e.clientY); });
+  svg.addEventListener('pointermove',e=>{ if(dim==='3') move(e.clientX,e.clientY); });
+  svg.addEventListener('pointerup',end);
+  svg.addEventListener('pointercancel',end);
+  document.getElementById('resetView').addEventListener('click',()=>{
+    yaw=HOME.yaw; pitch=HOME.pitch; render3d(); });
+  document.getElementById('faceOn').addEventListener('click',()=>{
+    yaw=0; pitch=0; render3d(); });
+})();
+
 function showTip(s,e){
   const t=document.getElementById('tip'), last=s.tail[s.tail.length-1];
   const q=quadrant(last[0],last[1]);
   t.innerHTML=`<strong>${s.name}</strong> <span class="q ${quadCls(q)}">${q}</span><br>`+
     `RS-Ratio ${last[0].toFixed(2)} · RS-Mom ${last[1].toFixed(2)}`+
+    (s.vol&&s.vol.length?`<br>volatility ${s.vol[s.vol.length-1].toFixed(1)}% annualised`:'')+
     (s.basis!==undefined?`<br><span class="dim">equal-weight of ${s.basis} of ${s.count}</span>`:'')+
     (s.sector?`<br><span class="dim">${s.sector}${s.cashOnly?' · cash only':''}</span>`:'');
   const r=document.querySelector('.rrg-wrap').getBoundingClientRect();
@@ -191,6 +435,8 @@ function hideTip(){ document.getElementById('tip').hidden=true; }
 
 function syncChrome(){
   document.getElementById('sectorPickRow').hidden = (view!=='stocks');
+  document.getElementById('rotRow').hidden = (dim!=='3');
+  document.getElementById('sizeLegend').hidden = (dim!=='3');
   const n=activeSeries().length;
   document.getElementById('pickHint').textContent =
     view==='stocks' && sectorPick==='__all__'
@@ -219,6 +465,7 @@ function wire(attr, fn){
 wire('data-view', v=>{view=v;});
 wire('data-period', p=>{period=p;});
 wire('data-tail', t=>{tail=+t;});
+wire('data-dim', d=>{dim=d;});
 document.getElementById('sectorPick').addEventListener('change',e=>{
   sectorPick=e.target.value; syncChrome(); render();
 });

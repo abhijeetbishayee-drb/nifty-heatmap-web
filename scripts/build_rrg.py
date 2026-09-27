@@ -26,7 +26,7 @@ from nifty_heatmap_core import (
     HEADERS, FNO_SECTORS, FNO_ALL, SECTOR_INDICES, CASH_ONLY, short_name,
 )
 from nifty_heatmap_core.rrg import (
-    DAILY, WEEKLY, to_weekly, rrg_tail, equal_weight_series, min_bars,
+    DAILY, WEEKLY, to_weekly, rrg_tail, equal_weight_series, min_bars, vol_tail,
 )
 
 BENCHMARK = "^NSEI"
@@ -104,8 +104,8 @@ def series_for(ticker, hist, dates):
     return vals[first:], first
 
 
-def points(ticker_vals, bench_vals, cfg, weekly, dates):
-    """Compute the RRG tail for one aligned series."""
+def prepare(ticker_vals, bench_vals, weekly, dates):
+    """Resample one aligned series and the benchmark onto the RRG timeframe."""
     if ticker_vals is None:
         return None
     vals, first = ticker_vals
@@ -114,6 +114,14 @@ def points(ticker_vals, bench_vals, cfg, weekly, dates):
         wd = dates[first:]
         _, vals = to_weekly(wd, vals)
         _, bench = to_weekly(wd, bench)
+    return vals, bench
+
+
+def points(prepped, cfg):
+    """Compute the RRG tail for one prepared series."""
+    if prepped is None:
+        return None
+    vals, bench = prepped
     if len(vals) < min_bars(cfg):
         return None
     return rrg_tail(vals, bench, cfg)
@@ -148,7 +156,9 @@ def main():
         "benchmark": {"ticker": BENCHMARK, "label": BENCH_LABEL},
         "note": ("Approximation of JdK RS-Ratio/RS-Momentum, not the licensed "
                  "formula. Every symbol is z-scored over an identical window; "
-                 "symbols with less history are excluded, not rescaled."),
+                 "symbols with less history are excluded, not rescaled. "
+                 "vol is trailing annualised realised volatility in percent, "
+                 "one value per tail point, used as the Z axis of the 3D view."),
         "config": {"daily": DAILY, "weekly": WEEKLY},
         "sectors": {}, "stocks": {}, "excluded": {},
     }
@@ -160,13 +170,15 @@ def main():
         stocks = []
         for sector, tickers in FNO_SECTORS.items():
             for t in tickers:
-                tail = points(aligned.get(t), bench_vals, cfg, weekly, dates)
+                prepped = prepare(aligned.get(t), bench_vals, weekly, dates)
+                tail = points(prepped, cfg)
                 if tail is None:
                     excluded.append({"name": short_name(t), "ticker": t,
                                      "sector": sector, "reason": "insufficient history"})
                     continue
                 stocks.append({"name": short_name(t), "ticker": t, "sector": sector,
-                               "cashOnly": t in CASH_ONLY, "tail": tail})
+                               "cashOnly": t in CASH_ONLY, "tail": tail,
+                               "vol": vol_tail(prepped[0], cfg, len(tail))})
 
         # ── sectors: equal-weighted synthetic, uniformly ────────────────
         # Yahoo serves NO history for 10 of the 12 NSE sectoral indices
@@ -193,11 +205,12 @@ def main():
                     used.append(short_name(t))
                 else:
                     dropped.append(short_name(t))
-            tail = None
+            tail, prepped = None, None
             if cons:
                 synth = equal_weight_series(cons)
                 if synth:
-                    tail = points((synth, start), bench_vals, cfg, weekly, dates)
+                    prepped = prepare((synth, start), bench_vals, weekly, dates)
+                    tail = points(prepped, cfg)
             if tail is None:
                 excluded.append({"name": sector, "kind": "sector",
                                  "reason": "no constituent covers the window"})
@@ -205,7 +218,8 @@ def main():
             sectors.append({"name": sector, "kind": "synthetic",
                             "label": f"{sector} (equal-weight)",
                             "count": len(tickers), "basis": len(used),
-                            "dropped": dropped, "tail": tail})
+                            "dropped": dropped, "tail": tail,
+                            "vol": vol_tail(prepped[0], cfg, len(tail))})
 
         out["stocks"][period] = stocks
         out["sectors"][period] = sectors
