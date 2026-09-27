@@ -35,6 +35,9 @@
       <button type="button" data-sort="avg" class="active">By change</button>
       <button type="button" data-sort="name">A–Z</button>
       <button type="button" data-sort="size">By size</button>
+      <span class="lbl" style="margin-left:10px;">Sector avg</span>
+      <button type="button" data-avg="all" class="active">All</button>
+      <button type="button" data-avg="ex">Ex-outliers</button>
     </div>
     <div class="status" id="breadthTag" style="font-family:'IBM Plex Mono',monospace;"></div>
   </div>
@@ -55,6 +58,7 @@
   </div>
 
   <div class="footnote ca-note" id="caNote" hidden></div>
+  <div class="footnote ca-note" id="exNote" hidden></div>
   <div class="footnote">
     Prices and % change from NSE via Yahoo Finance, refreshed about once a minute by a GitHub
     Actions workflow; this page re-reads <code>sector_data.json</code> every 30 seconds while open.
@@ -98,7 +102,7 @@ function sortSectors(sectors){
   const rest = sectors.filter(s => !s.pinned);
   if(sortMode === 'name') rest.sort((a,b) => a.sector.localeCompare(b.sector));
   else if(sortMode === 'size') rest.sort((a,b) => b.count - a.count);
-  else rest.sort((a,b) => (b.avgPct ?? -999) - (a.avgPct ?? -999));
+  else rest.sort((a,b) => (shownAvg(b) ?? -999) - (shownAvg(a) ?? -999));
   return pinned.concat(rest);
 }
 
@@ -145,11 +149,39 @@ function sectorStripHtml(sectors){
     return `
       <a class="sector-row${s.pinned ? ' pinned' : ''}" href="#${slug(s.sector)}">
         <span class="nm">${s.sector}</span>
-        <span class="vl ${sectorBucket(s.avgPct)}">${fmtPct(s.avgPct)}</span>
+        <span class="vl ${sectorBucket(shownAvg(s))}">${fmtPct(shownAvg(s))}</span>
         ${rangeHtml}
       </a>
     `;
   }).join('');
+}
+
+/* Which average is on screen. avgPctEx exists only where a constituent is
+   doing something categorically different, so on an ordinary day this returns
+   the same number either way. */
+let avgMode = 'all';
+function shownAvg(s){
+  return (avgMode === 'ex' && s.avgPctEx !== null && s.avgPctEx !== undefined)
+    ? s.avgPctEx : s.avgPct;
+}
+function isAdjusted(s){
+  return avgMode === 'ex' && s.avgPctEx !== null && s.avgPctEx !== undefined;
+}
+
+function renderExNote(sectors){
+  const el=document.getElementById('exNote'); if(!el) return;
+  const hits=sectors.filter(x=>x.avgPctEx!==null&&x.avgPctEx!==undefined);
+  if(!hits.length){ el.hidden=true; el.innerHTML=''; return; }
+  el.hidden=false;
+  const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  el.innerHTML='<strong>A constituent is distorting its sector average today.</strong> '
+    + hits.map(x=>`<strong>${esc(x.sector)}</strong> reads ${fmtPct(x.avgPct)} with every name and `
+        + `${fmtPct(x.avgPctEx)} without ${esc(x.exOutliers.join(', '))}`).join('; ')
+    + '. An equal-weighted average is one name away from being a story about that name, so the '
+    + '<em>Sector avg</em> control offers both. A name qualifies only by moving unlike its own peers '
+    + '<em>and</em> by at least 15 points from the sector median — a threshold set from 112,164 '
+    + 'sessions, which fires about once every eight trading days. When a whole sector moves together '
+    + 'nobody is flagged and the average stands. Nothing is hidden: the tile is still on the board.';
 }
 
 function sectorBlockHtml(s){
@@ -161,7 +193,7 @@ function sectorBlockHtml(s){
       <div class="sector-head">
         <h2>${s.sector}</h2>
         <span class="n">${s.count}</span>
-        <span class="avg ${sectorBucket(s.avgPct)}">${fmtPct(s.avgPct)}</span>
+        <span class="avg ${sectorBucket(shownAvg(s))}">${fmtPct(shownAvg(s))}</span>${isAdjusted(s) ? `<span class="ex-tag" title="${s.avgPct.toFixed(2)}% with every constituent; this average leaves out ${s.exOutliers.join(', ')}">ex ${s.exOutliers.join(', ')}</span>` : ''}
         <span class="breadth">
           <span>${s.up}&#9650; ${s.down}&#9660;</span>
           <span class="breadth-bar">
@@ -180,6 +212,7 @@ function paintSectors(){
   const sectors = sortSectors(latest.sectors || []);
   document.getElementById('sectorStrip').innerHTML = sectorStripHtml(sectors);
   document.getElementById('sectorBlocks').innerHTML = sectors.map(sectorBlockHtml).join('');
+  renderExNote(sectors);
   renderCaNote(sectors.flatMap(s => s.rows || []));
 }
 
@@ -198,6 +231,14 @@ function render(data){
   document.getElementById('gainersList').innerHTML = moversList(data.gainers, 'offLow');
   document.getElementById('losersList').innerHTML = moversList(data.losers, 'offHigh');
 }
+
+document.querySelectorAll('.controls button[data-avg]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.controls button[data-avg]').forEach(b => b.classList.toggle('active', b === btn));
+    avgMode = btn.getAttribute('data-avg');
+    paintSectors();
+  });
+});
 
 document.querySelectorAll('.controls button[data-sort]').forEach(btn => {
   btn.addEventListener('click', () => {

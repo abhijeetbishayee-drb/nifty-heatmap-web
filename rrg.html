@@ -24,22 +24,22 @@
 
   <div class="meta-row">
     <div class="controls">
-      <span class="lbl">View</span>
-      <button type="button" data-view="sectors" class="active">Sectors</button>
-      <button type="button" data-view="stocks">Stocks</button>
-      <span class="lbl" style="margin-left:10px;">Period</span>
-      <button type="button" data-period="daily" class="active">Daily</button>
-      <button type="button" data-period="weekly">Weekly</button>
-      <span class="lbl" style="margin-left:10px;">Tail</span>
-      <button type="button" data-tail="4">4</button>
-      <button type="button" data-tail="8">8</button>
-      <button type="button" data-tail="12" class="active">12</button>
-      <span class="lbl" style="margin-left:10px;" id="basketLbl">Basket</span>
-      <button type="button" data-basket="all" class="active" id="bAll">All</button>
-      <button type="button" data-basket="ex" id="bEx">Ex-outliers</button>
-      <span class="lbl" style="margin-left:10px;">Plot</span>
-      <button type="button" data-dim="2" class="active">2D</button>
-      <button type="button" data-dim="3">3D · vol</button>
+      <span class="ctl-group"><span class="lbl">View</span>
+        <button type="button" data-view="sectors" class="active">Sectors</button>
+        <button type="button" data-view="stocks">Stocks</button></span>
+      <span class="ctl-group"><span class="lbl">Period</span>
+        <button type="button" data-period="daily" class="active">Daily</button>
+        <button type="button" data-period="weekly">Weekly</button></span>
+      <span class="ctl-group"><span class="lbl">Tail</span>
+        <button type="button" data-tail="4">4</button>
+        <button type="button" data-tail="8">8</button>
+        <button type="button" data-tail="12" class="active">12</button></span>
+      <span class="ctl-group"><span class="lbl" id="basketLbl">Basket</span>
+        <button type="button" data-basket="all" class="active" id="bAll">All</button>
+        <button type="button" data-basket="ex" id="bEx">Ex-outliers</button></span>
+      <span class="ctl-group"><span class="lbl">Plot</span>
+        <button type="button" data-dim="2" class="active">2D</button>
+        <button type="button" data-dim="3">3D &middot; vol</button></span>
     </div>
     <div class="status" id="statusTag"><span class="live-dot"></span><span id="statusText">Loading…</span></div>
   </div>
@@ -509,9 +509,8 @@ function syncChrome(){
   const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   document.getElementById('sectorPickRow').hidden = (view!=='stocks');
   const isSec = view==='sectors';
-  ['basketLbl','bAll','bEx'].forEach(id=>{
-    const el=document.getElementById(id); if(el) el.hidden = !isSec;
-  });
+  const bg=document.getElementById('basketLbl');
+  if(bg && bg.parentElement) bg.parentElement.hidden = !isSec;
   document.getElementById('rotRow').hidden = (dim!=='3');
   document.getElementById('sizeLegend').hidden = (dim!=='3');
   const n=activeSeries().length;

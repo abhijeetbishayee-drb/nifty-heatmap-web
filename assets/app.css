@@ -515,3 +515,9 @@
 }
 .ca-tag.na{ color:var(--text-dim); }
 .ca-note{ border-left:2px solid var(--info); padding-left:10px; margin-bottom:14px; }
+
+/* Keep a control label with its own buttons when the bar wraps. Without this
+   the row breaks mid-group and a toggle lands alone on the next line, where
+   it reads as unrelated - which is exactly how the 3D toggle got missed. */
+.ctl-group{ display:inline-flex; align-items:center; gap:6px; flex-wrap:nowrap; }
+.controls{ gap:6px 14px; }
