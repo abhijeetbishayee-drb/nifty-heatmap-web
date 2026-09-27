@@ -42,6 +42,7 @@
     </div>
   </div>
 
+  <div class="footnote ca-note" id="caNote" hidden></div>
   <div class="footnote">
     Prices and % change from NSE via Yahoo Finance. A GitHub Actions workflow refreshes
     <code>data.json</code> about once a minute; this page re-reads it every 30 seconds while open —
@@ -60,6 +61,7 @@ function render(data){
     indexCardHtml('NIFTY 50', indices.nifty) + indexCardHtml('BANK NIFTY', indices.banknifty);
 
   document.getElementById('grid').innerHTML = data.rows.map(tileHtml).join('');
+  renderCaNote(data.rows);
 
   document.getElementById('gainersList').innerHTML = moversList(data.gainers, 'offLow');
   document.getElementById('losersList').innerHTML = moversList(data.losers, 'offHigh');

@@ -54,6 +54,7 @@
     </div>
   </div>
 
+  <div class="footnote ca-note" id="caNote" hidden></div>
   <div class="footnote">
     Prices and % change from NSE via Yahoo Finance, refreshed about once a minute by a GitHub
     Actions workflow; this page re-reads <code>sector_data.json</code> every 30 seconds while open.
@@ -179,6 +180,7 @@ function paintSectors(){
   const sectors = sortSectors(latest.sectors || []);
   document.getElementById('sectorStrip').innerHTML = sectorStripHtml(sectors);
   document.getElementById('sectorBlocks').innerHTML = sectors.map(sectorBlockHtml).join('');
+  renderCaNote(sectors.flatMap(s => s.rows || []));
 }
 
 function render(data){

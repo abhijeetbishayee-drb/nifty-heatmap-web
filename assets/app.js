@@ -67,15 +67,36 @@ function dayRangeBar(r){
   `;
 }
 
+/* A name trading ex a corporate action. The raw print is an artefact - the
+   share count or the company changed overnight - so the tile is LABELLED
+   rather than left to read as a catastrophic loss. A split or bonus has an
+   exact ratio from its announced terms, so the % shown is the real
+   like-for-like move; a demerger has no such ratio, so it reads NA. */
+function caTag(r){
+  if(!r.ca) return '';
+  const what = /split/i.test(r.ca.what) ? 'ex-split'
+             : /bonus/i.test(r.ca.what) ? 'ex-bonus' : 'ex-demerger';
+  return `<div class="ca-tag${r.ca.adjusted ? '' : ' na'}">${what}${r.ca.adjusted ? ' · adj' : ''}</div>`;
+}
+function caTitle(r){
+  if(!r.ca) return '';
+  return ` · Ex ${r.ca.what} (${r.ca.date}). Raw print ${fmtPct(r.ca.rawPct)} is an artefact; `
+    + (r.ca.adjusted
+        ? 'shown adjusted for the announced ratio, which is the real move.'
+        : 'a demerger has no like-for-like change, so this reads NA today.');
+}
+
 /* One stock tile: name, price, % change, day-range bar, click through to NSE. */
 function tileHtml(r){
+  const pctText = (r.ca && !r.ca.adjusted) ? 'NA' : fmtPct(r.pct);
   return `
-    <a class="tile ${bucket(r.pct)}${r.cashOnly ? ' cash-only' : ''}" href="${nseUrl(r.ticker)}" target="_blank" rel="noopener noreferrer" title="Day range: ${fmtPrice(r.dayLow)} – ${fmtPrice(r.dayHigh)}${r.cashOnly ? ' · cash only, no F&O' : ''} · View on NSE">
+    <a class="tile ${bucket(r.pct)}${r.cashOnly ? ' cash-only' : ''}${r.ca ? ' ex-ca' : ''}" href="${nseUrl(r.ticker)}" target="_blank" rel="noopener noreferrer" title="Day range: ${fmtPrice(r.dayLow)} – ${fmtPrice(r.dayHigh)}${r.cashOnly ? ' · cash only, no F&O' : ''}${caTitle(r)} · View on NSE">
       <div class="name">${r.name}</div>
       <div class="figures">
         <div class="price">${fmtPrice(r.price)}</div>
-        <div class="pct">${fmtPct(r.pct)}</div>
+        <div class="pct">${pctText}</div>
       </div>
+      ${caTag(r)}
       ${dayRangeBar(r)}
     </a>
   `;
@@ -204,4 +225,25 @@ function initBackToTop(showAfter = 400){
   if(typeof ResizeObserver !== 'undefined'){
     new ResizeObserver(sync).observe(document.body);
   }
+}
+
+/* Shown only while a name is actually trading ex a corporate action, so the
+   board carries no standing caveat on the ~364 days a year when none is. */
+function renderCaNote(rows){
+  const el = document.getElementById('caNote');
+  if(!el) return;
+  const hits = (rows || []).filter(r => r && r.ca);
+  if(!hits.length){ el.hidden = true; el.innerHTML = ''; return; }
+  el.hidden = false;
+  el.innerHTML = '<strong>Trading ex a corporate action today.</strong> '
+    + hits.map(r => {
+        const base = `<strong>${r.name}</strong> — ex ${r.ca.what} (${r.ca.date}), `
+          + `raw print ${fmtPct(r.ca.rawPct)}`;
+        return base + (r.ca.adjusted
+          ? `, shown adjusted to <strong>${fmtPct(r.pct)}</strong> using the announced ratio.`
+          : `, shown as <strong>NA</strong>: a demerger changes the company itself, so there`
+            + ` is no like-for-like change to quote, and the name is left out of its sector average.`);
+      }).join(' ')
+    + ' The raw figure is an artefact of the share count or the company changing overnight, not a move. '
+    + 'Large moves that are <em>not</em> a listed corporate action are never rewritten.';
 }
