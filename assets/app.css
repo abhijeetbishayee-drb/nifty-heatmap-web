@@ -535,3 +535,12 @@
 .ind-key{ display:inline-flex; align-items:center; gap:6px; }
 .ind-key .sw{ width:16px; height:3px; border-radius:2px; }
 #chart.d3 .trail.t3{ opacity:0.12; }
+
+/* The two great circles that mean something - equator = RS-Momentum 100,
+   prime meridian = RS-Ratio 100 - are drawn harder than the guide lines,
+   because together they are what divides the globe into the four quadrants. */
+#chart .globe.divider{ opacity:0.9; stroke:var(--text-dim); stroke-width:1.3; }
+#chart .qlabel.q-lead{ fill:var(--q-lead); } #chart .qlabel.q-weak{ fill:var(--q-weak); }
+#chart .qlabel.q-lag { fill:var(--q-lag);  } #chart .qlabel.q-imp { fill:var(--q-imp);  }
+#chart .qlabel{ font-size:12px; font-weight:700; letter-spacing:0.12em; opacity:1; }
+#chart .qlabel.halo{ paint-order:stroke; stroke:var(--panel); stroke-width:3.5px; stroke-linejoin:round; }

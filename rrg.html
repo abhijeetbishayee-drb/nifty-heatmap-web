@@ -307,27 +307,26 @@ function render3d(){
   const svg=document.getElementById('chart');
   const W=1000, H=620;
 
-  /* The two Z metrics differ in kind, not just in units. Volatility is a
-     positive magnitude, so its reference plane sits at the back and depth
-     means "more". Absolute return is SIGNED, so its plane sits at zero and
-     depth means "made money / lost money" - which is the one thing an RRG
-     structurally cannot show, since both its axes are relative. */
+  /* The two Z metrics differ in kind. Volatility is a positive magnitude with
+     no natural zero, so its calmest reading sits at the centre. Absolute
+     return is SIGNED, and here the radius carries its SIZE while the northern
+     or southern hemisphere already carries direction of momentum - so the
+     radius uses the size of the move and the sign is reported in the label. */
   const Z = zaxis==='ret' ? {
-    key:'ret', name:'absolute return', axis:'absolute return',
+    key:'ret', name:'absolute return', axis:'|absolute return|',
     fmt:v=>(v>=0?'+':'')+v.toFixed(1)+'%', signed:true,
-    lo:'falling — behind the plane', hi:'rising — in front of the plane',
+    lo:'flat — small, opaque, near the centre',
+    hi:'big move either way — large, translucent, out at the shell',
   } : {
     key:'vol', name:'volatility', axis:'volatility',
     fmt:v=>v.toFixed(0)+'%', signed:false,
-    lo:'low volatility — small, opaque, at the back',
-    hi:'high volatility — large, translucent, toward you',
+    lo:'low volatility — small, opaque, near the centre',
+    hi:'high volatility — large, translucent, out at the shell',
   };
 
-  /* A metric is null when a symbol lacks a full window at every tail point; a
-     partial window would make its earliest points noisier than its latest, so
-     it is dropped from 3D rather than plotted on a short window. */
   const series=activeSeries()
-    .map(s=>({...s, tail:s.tail.slice(-tail), z:(s[Z.key]||[]).slice(-tail)}))
+    .map(s=>({...s, tail:s.tail.slice(-tail), z:(s[Z.key]||[]).slice(-tail),
+              vol:(s.vol||[]).slice(-tail)}))
     .filter(s=>s.z.length===s.tail.length && s.z.every(v=>v!=null));
   const novol=activeSeries().length - series.length;
   document.getElementById('volHint').textContent = series.length
@@ -335,58 +334,95 @@ function render3d(){
     : `nothing has a full ${Z.name} window on this timeframe`;
   if(!series.length){ svg.innerHTML=''; return; }
 
-  /* Zooming in is how you ask for detail, so names appear as you go in even
-     on the all-stocks view where 220 labels at once would be unreadable. */
   const show=detailed(series) || zoom >= 1.5;
 
-  // ── world normalisation: RS/Mom centred on 100, vol over its own range ──
+  // ── ranges ───────────────────────────────────────────────────────────
   const xs=[], ys=[], vs=[];
   series.forEach(s=>{ s.tail.forEach(([r,m])=>{xs.push(r);ys.push(m);}); s.z.forEach(v=>vs.push(v)); });
-  const sym=arr=>{ const d=Math.max(0.25,...arr.map(v=>Math.abs(v-100)))*1.1; return [100-d,100+d]; };
-  const [x0,x1]=sym(xs), [y0,y1]=sym(ys);
+  /* Scaling the angles by the single largest deviation wastes the globe: one
+     extreme name sets the range and the median sector then occupies 12-26% of
+     its axis, leaving everything bunched along the equator. Measured on this
+     board 2026-09-27: median |RS-100| 0.36 against a 1.36 max, median
+     |Mom-100| 0.41 against 2.62.
 
-  /* zPlane is where the shaded RRG plane sits and where the stems land: the
-     back for volatility, but ZERO for return, so the plane reads as the
-     break-even line and a stem's direction is its sign. */
-  let v0, v1, zPlane;
-  if(Z.signed){
-    const h=Math.max(1e-6, ...vs.map(Math.abs))*1.05;
-    v0=-h; v1=h; zPlane=0;
-  }else{
-    v0=Math.min(...vs); v1=Math.max(...vs);
-    if(v1-v0 < 1e-6){ v0-=1; v1+=1; }
-    zPlane=v0;
-  }
-  const nx=v=>(v-100)/((x1-x0)/2), ny=v=>(v-100)/((y1-y0)/2);
-  /* Depth is anchored so the CENTRE of the globe is the unremarkable reading.
-     A signed metric (absolute return) is symmetric about zero, so break-even
-     sits at the middle and the sphere fills both ways. Volatility has no
-     natural zero, so its calmest reading sits at the centre plane and vol
-     pushes outward - which is why the small opaque bubbles cluster in the
-     middle and the big translucent ones sit out toward the shell. */
-  const nz=v=>Z.signed ? (v/v1)*Z_HALF : ((v-v0)/(v1-v0))*Z_HALF;
-  // 0..1 magnitude, drives radius + opacity
-  const nvol=v=>Z.signed ? Math.abs(v)/v1 : (v-v0)/(v1-v0);
+     So longitude and latitude use an asinh (symlog) scale keyed to the MEDIAN
+     deviation. It is monotonic and clamps nothing, so no name loses its
+     place and the ordering is exactly the ordering of the 2D board - but the
+     crowded middle spreads out and the extremes compress toward the rim
+     instead of dictating the scale.
 
-  // ── auto-fit: project everything at unit scale, then scale to the frame ──
+     The consequence, and it matters: angle on the globe is monotonic in
+     RS-Ratio but NOT linear in it, while the 2D board is linear. Read
+     direction and grouping here; read precise position on the 2D board. */
+  const asinh=v=>Math.log(v+Math.sqrt(v*v+1));
+  const devScale=arr=>{
+    const d=arr.map(v=>Math.abs(v-100)).sort((a,b)=>a-b);
+    return Math.max(1e-6, d[Math.floor(d.length/2)] || 0.25);
+  };
+  const sx_=devScale(xs), sy_=devScale(ys);
+  const mx_=Math.max(1e-6,...xs.map(v=>Math.abs(v-100)));
+  const my_=Math.max(1e-6,...ys.map(v=>Math.abs(v-100)));
+  const spreadX=v=>{const d=(v-100); return Math.sign(d)*asinh(Math.abs(d)/sx_)/asinh(mx_/sx_);};
+  const spreadY=v=>{const d=(v-100); return Math.sign(d)*asinh(Math.abs(d)/sy_)/asinh(my_/sy_);};
+  // kept for the axis labels, which still quote real RS / momentum values
+  const x0=100-mx_, x1=100+mx_, y0=100-my_, y1=100+my_;
+  let v0=Math.min(...vs), v1=Math.max(...vs);
+  if(Z.signed){ v0=0; v1=Math.max(1e-6,...vs.map(Math.abs)); }
+  if(v1-v0 < 1e-6){ v1=v0+1; }
+
+  /* ── the globe ────────────────────────────────────────────────────────
+     RS-Ratio is LONGITUDE, RS-Momentum is LATITUDE, and the Z metric is the
+     RADIUS from the centre out to the shell.
+
+     That makes the two dividing great circles mean something exact: the
+     EQUATOR is RS-Momentum 100 and the PRIME MERIDIAN is RS-Ratio 100. They
+     cut the globe into the four RRG quadrants - east is strong, north is
+     gaining - so Leading is the north-east face, Weakening south-east,
+     Lagging south-west, Improving north-west, whatever the radius.
+
+     Longitude stops at ±150° so the two extremes of RS-Ratio never meet
+     behind the globe, and latitude at ±72° so nothing lands exactly on a pole
+     where longitude stops meaning anything. R_FLOOR keeps even the calmest
+     name off the dead centre, where it would have no readable direction. */
+  const LON = 150*Math.PI/180, LAT = 72*Math.PI/180, R_FLOOR = 0.18;
+  const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+  const lonOf = rs => clamp(spreadX(rs), -1, 1) * LON;
+  const latOf = mm => clamp(spreadY(mm), -1, 1) * LAT;
+  /* Radius gets the same asinh treatment as the angles, and for the same
+     reason: on absolute return most sectors sit within a couple of percent of
+     zero while one runs to -9%, so a linear radius buries the whole board at
+     the centre. Monotonic, nothing clamped away - but as with the angles,
+     distance here is ORDERED by the metric, not proportional to it. */
+  const zMid = (()=>{ const a=vs.map(v=>Math.abs((Z.signed?Math.abs(v):v)-v0)).sort((x,y)=>x-y);
+    return Math.max(1e-6, a[Math.floor(a.length/2)]||1); })();
+  const zTop = Math.max(1e-6, v1-v0);
+  const radOf = zv => {
+    const dz = clamp((Z.signed?Math.abs(zv):zv) - v0, 0, zTop);
+    const t = asinh(dz/zMid)/asinh(zTop/zMid);
+    return R_FLOOR + (1-R_FLOOR)*clamp(t,0,1);
+  };
+  // lon 0 faces the camera at yaw 0, so RS 100 starts front and centre
+  const world = (lon, lat, r) => [ r*Math.cos(lat)*Math.sin(lon),
+                                   r*Math.sin(lat),
+                                   r*Math.cos(lat)*Math.cos(lon) ];
+  const wOf = (rs, mm, zv) => world(lonOf(rs), latOf(mm), radOf(zv));
+
+  // ── auto-fit against the shell so the frame never clips as it turns ──
   const probe=[];
-  // the globe's own extent, so the frame never clips as it turns
-  for(let i=0;i<24;i++){const a=i/24*2*Math.PI;
+  for(let i=0;i<32;i++){const a=i/32*2*Math.PI;
     probe.push(rot(Math.cos(a),Math.sin(a),0), rot(Math.cos(a),0,Math.sin(a)), rot(0,Math.cos(a),Math.sin(a)));}
-  series.forEach(s=>s.tail.forEach(([r,m],i)=>probe.push(rot(nx(r),ny(m),nz(s.z[i])))));
   const bx0=Math.min(...probe.map(p=>p.x)), bx1=Math.max(...probe.map(p=>p.x));
   const by0=Math.min(...probe.map(p=>p.y)), by1=Math.max(...probe.map(p=>p.y));
-  const M=58;   // room for labels and for the largest sphere
+  const M=64;
   const k=Math.min((W-2*M)/Math.max(bx1-bx0,1e-6), (H-2*M)/Math.max(by1-by0,1e-6))*zoom;
   const ox=W/2-k*(bx0+bx1)/2, oy=H/2-k*(by0+by1)/2;
   const P=(wx,wy,wz)=>{ const p=rot(wx,wy,wz); return {x:ox+k*p.x, y:oy+k*p.y, z:p.z, s:p.s}; };
-  const pt=(r,m,v)=>P(nx(r),ny(m),nz(v));
+  const pt=(rs,mm,zv)=>P(...wOf(rs,mm,zv));
 
   const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   const xy=p=>`${p.x.toFixed(1)},${p.y.toFixed(1)}`;
   let out='';
 
-  // sphere shading: one gradient per quadrant colour
   out+='<defs>'+QUADS.map(q=>
     `<radialGradient id="sph-${q.cls}" cx="34%" cy="28%" r="72%">`+
     `<stop offset="0%" stop-color="#ffffff" stop-opacity="0.72"/>`+
@@ -394,61 +430,36 @@ function render3d(){
     `<stop offset="100%" stop-color="var(--${q.cls})" stop-opacity="0.82"/>`+
     `</radialGradient>`).join('')+'</defs>';
 
-  // ── quadrant reference ───────────────────────────────────────────────
-  // No filled plane here: a rectangle cutting through a globe reads as a
-  // wall, not a reference. The quadrants live in the bubble colours and the
-  // legend; what the eye needs in 3D is the three axes meeting at the
-  // centre, so it can tell which way is which while the thing turns.
-  const axis=(from,to,cls)=>{
-    const A=P(...from), B=P(...to);
-    out+=`<line class="${cls}" x1="${A.x.toFixed(1)}" y1="${A.y.toFixed(1)}" x2="${B.x.toFixed(1)}" y2="${B.y.toFixed(1)}"/>`;
-  };
-  axis([-1,0,0],[1,0,0],'cross');          // RS-Ratio
-  axis([0,-1,0],[0,1,0],'cross');          // RS-Momentum
-  axis([0,0,-Z_HALF],[0,0,Z_HALF],'cross zax');   // the Z metric
-
-  const lbl=(at,txt)=>{const q=P(...at);
-    out+=`<text class="tick halo" x="${q.x.toFixed(1)}" y="${(q.y+3.5).toFixed(1)}" text-anchor="middle">${txt}</text>`;};
-  lbl([1.1,0,0], `RS ${x1.toFixed(2)}`);
-  lbl([-1.1,0,0], `RS ${x0.toFixed(2)}`);
-  lbl([0,1.1,0], `Mom ${y1.toFixed(2)}`);
-  lbl([0,-1.1,0], `Mom ${y0.toFixed(2)}`);
-  lbl([0,0,Z_HALF*1.25], Z.fmt(v1));
-  out+=`<text class="axis halo" x="${P(0,-1.28,0).x.toFixed(1)}" y="${P(0,-1.28,0).y.toFixed(1)}" text-anchor="middle">${Z.axis} outward from centre</text>`;
-
-  // ── spherical frame ─────────────────────────────────────────────────
-  // A globe rather than a box: the centre is the origin - RS 100, momentum
-  // 100, and the calmest reading on the Z metric - so distance from the
-  // middle is how far a name is from ordinary in every dimension at once.
-  // The small opaque bubbles cluster there; the large translucent ones sit
-  // out toward the shell.
-  const R = 1.0;
-  const ring = (fn, cls) => {
-    const pts = [];
-    for (let a = 0; a <= 360; a += 6) {
-      const t = a * Math.PI / 180;
-      pts.push(xy(P(...fn(t))));
-    }
-    out += `<polyline class="${cls}" points="${pts.join(' ')}"/>`;
-  };
-  // three great circles give the eye an unambiguous orientation
-  ring(t => [R*Math.cos(t), R*Math.sin(t), 0], 'globe');
-  ring(t => [R*Math.cos(t), 0, R*Math.sin(t)], 'globe');
-  ring(t => [0, R*Math.cos(t), R*Math.sin(t)], 'globe');
-  // latitude rings, fainter, for depth
-  [-0.6, -0.3, 0.3, 0.6].forEach(h => {
-    const r = Math.sqrt(Math.max(0, R*R - h*h));
-    ring(t => [r*Math.cos(t), h, r*Math.sin(t)], 'globe faint');
+  // ── shell: the two quadrant dividers first, then faint guides ────────
+  const arc=(fn,cls)=>{const p=[];for(let a=0;a<=360;a+=4){const t=a*Math.PI/180;p.push(xy(P(...fn(t))));}
+    out+=`<polyline class="${cls}" points="${p.join(' ')}"/>`;};
+  arc(t=>world(t,0,1), 'globe divider');                 // equator  = Mom 100
+  arc(t=>world(0,t,1), 'globe divider');                 // meridian = RS 100
+  [-0.9,-0.45,0.45,0.9].forEach(f=>{
+    arc(t=>world(t, f*LAT, 1), 'globe faint');           // parallels
+    arc(t=>world(f*LON, t, 1), 'globe faint');           // meridians
   });
-  // the origin itself
-  const O = P(0, 0, 0);
-  out += `<circle class="origin" cx="${O.x.toFixed(1)}" cy="${O.y.toFixed(1)}" r="3"/>`;
 
-  out+=`<text class="axis" x="${W/2}" y="${H-8}" text-anchor="middle">centre = RS 100, momentum 100, calmest ${Z.axis} · drag to rotate, scroll to zoom</text>`;
+  // ── quadrant names, out on the shell where each one lives ────────────
+  const face=(lon,lat,txt,cls)=>{const q=P(...world(lon,lat,1.16));
+    out+=`<text class="qlabel halo ${cls}" x="${q.x.toFixed(1)}" y="${q.y.toFixed(1)}" text-anchor="middle">${txt}</text>`;};
+  face( LON*0.55,  LAT*0.55, 'LEADING',   'q-lead');
+  face( LON*0.55, -LAT*0.55, 'WEAKENING', 'q-weak');
+  face(-LON*0.55, -LAT*0.55, 'LAGGING',   'q-lag');
+  face(-LON*0.55,  LAT*0.55, 'IMPROVING', 'q-imp');
 
-  // ── one thread per industry, drawn under the bubbles ────────────────
-  // Sorted by RS-Ratio so the line runs along the industry rather than
-  // zig-zagging in whatever order the data happened to arrive.
+  // ── the radial axis: centre to shell is the Z metric ─────────────────
+  const A=P(0,0,0), B=P(...world(0,0,1));
+  out+=`<line class="cross zax" x1="${A.x.toFixed(1)}" y1="${A.y.toFixed(1)}" x2="${B.x.toFixed(1)}" y2="${B.y.toFixed(1)}"/>`;
+  [0,0.5,1].forEach(f=>{
+    const r=R_FLOOR+(1-R_FLOOR)*f, q=P(...world(0,0,r));
+    out+=`<circle class="vtick" cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="2"/>`+
+         `<text class="tick halo" x="${q.x.toFixed(1)}" y="${(q.y-7).toFixed(1)}" text-anchor="middle">${Z.fmt(v0+(v1-v0)*f)}</text>`;
+  });
+  out+=`<circle class="origin" cx="${A.x.toFixed(1)}" cy="${A.y.toFixed(1)}" r="3"/>`;
+  out+=`<text class="axis" x="${W/2}" y="${H-8}" text-anchor="middle">longitude = RS-Ratio · latitude = RS-Momentum · radius from centre = ${Z.axis}</text>`;
+
+  // ── one thread per industry ──────────────────────────────────────────
   if(view==='sectors'){
     const groups={};
     series.forEach(sx=>{ if(sx.industry) (groups[sx.industry] ||= []).push(sx); });
@@ -456,27 +467,32 @@ function render3d(){
       if(members.length<2) return;
       const col=INDUSTRY_COLOURS[ind]||'var(--text-dim)';
       const pts=members
-        .map(sx=>({sx, last:sx.tail[sx.tail.length-1], z:sx.z[sx.z.length-1]}))
+        .map(sx=>({last:sx.tail[sx.tail.length-1], z:sx.z[sx.z.length-1]}))
         .sort((a,b)=>a.last[0]-b.last[0])
         .map(o=>xy(pt(o.last[0], o.last[1], o.z)));
       out+=`<polyline class="ind-thread" points="${pts.join(' ')}" stroke="${col}"/>`;
     });
   }
 
-  // ── spheres, far to near, so the big translucent ones land on top ──
+  // ── bubbles, far to near ─────────────────────────────────────────────
   const drawn=series.map((s,i)=>{
     const last=s.tail[s.tail.length-1], lv=s.z[s.z.length-1];
     return {s, i, last, lv, p:pt(last[0],last[1],lv)};
   }).sort((a,b)=>a.p.z-b.p.z);
 
+  /* SIZE always reads volatility, whatever the radius is showing. Longitude,
+     latitude and radius are already spoken for, so size was the last free
+     channel, and spending it on a third copy of the radius would waste it: on
+     the absolute-return setting you now read distance-from-centre as the size
+     of the move and bubble size as the risk behind it, both at once. On the
+     volatility setting the two simply agree and reinforce each other. */
+  const volAll=series.flatMap(sx=>sx.vol||[]).filter(v=>v!=null);
+  const q0=volAll.length?Math.min(...volAll):0, q1=volAll.length?Math.max(...volAll):1;
+  const volN=v=>(v==null||q1-q0<1e-9)?0.5:clamp((v-q0)/(q1-q0),0,1);
+
   drawn.forEach(({s,i,last,lv,p})=>{
     const q=quadrant(last[0],last[1]), cls=quadCls(q);
-    /* Area, not radius, is what the eye reads off a bubble, so radius takes
-       the square root of the normalised volatility. It is also what keeps one
-       81%-vol name from flattening the other 223 into identical specks. */
-    const t=Math.sqrt(nvol(lv));
-    // radius scales with zoom too, otherwise scrolling only spreads the
-    // points apart and reads as a stretch rather than moving closer
+    const t=Math.sqrt(volN(s.vol && s.vol[s.vol.length-1]));
     const r=(R_MIN+(R_MAX-R_MIN)*t)*(0.78+0.22*p.s)*(show?1:0.62)*Math.sqrt(zoom);
     const op=OP_MAX-(OP_MAX-OP_MIN)*t;
 
@@ -484,15 +500,9 @@ function render3d(){
       const path=s.tail.map(([rr,mm],j)=>xy(pt(rr,mm,s.z[j]))).join(' ');
       out+=`<polyline class="trail t3 ${cls}" points="${path}"/>`;
     }
-    // stem back to the volatility-floor plane: without it the depth of a
-    // sphere is unreadable, and its RS/Momentum position is the whole point
-    const foot=pt(last[0],last[1],zPlane);
-    out+=`<line class="stem ${cls}" x1="${p.x.toFixed(1)}" y1="${p.y.toFixed(1)}" x2="${foot.x.toFixed(1)}" y2="${foot.y.toFixed(1)}"/>`;
-    out+=`<circle class="shadow" cx="${foot.x.toFixed(1)}" cy="${foot.y.toFixed(1)}" r="2.4"/>`;
-
     out+=`<circle class="sph ${cls}${s.cashOnly?' cash':''}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}"`+
          ` r="${r.toFixed(1)}" fill="url(#sph-${cls})" fill-opacity="${op.toFixed(2)}"`+
-         ` data-i="${i}" tabindex="0"><title>${esc(s.name)} · RS ${last[0].toFixed(2)} · Mom ${last[1].toFixed(2)} · ${Z.name} ${Z.fmt(lv)} · ${q}</title></circle>`;
+         ` data-i="${i}" tabindex="0"><title>${esc(s.name)} · RS ${last[0].toFixed(2)} · Mom ${last[1].toFixed(2)} · ${Z.name} ${Z.fmt(lv)} · vol ${((s.vol&&s.vol[s.vol.length-1])||0).toFixed(1)}% · ${q}</title></circle>`;
     if(show) out+=`<text class="plabel halo" x="${(p.x+r+5).toFixed(1)}" y="${(p.y+4).toFixed(1)}">${esc(s.name)}</text>`;
   });
 
@@ -505,18 +515,18 @@ function render3d(){
   });
 
   const inds=[...new Set(series.map(sx=>sx.industry).filter(Boolean))];
-  document.getElementById('indLegend').innerHTML = (view==='sectors' && inds.length)
+  const il=document.getElementById('indLegend');
+  il.innerHTML = (view==='sectors' && inds.length)
     ? inds.map(i=>`<span class="ind-key"><span class="sw" style="background:${INDUSTRY_COLOURS[i]||'#888'}"></span>${i}</span>`).join('')
     : '';
-  document.getElementById('indLegend').hidden = !(view==='sectors' && inds.length);
+  il.hidden = !(view==='sectors' && inds.length);
 
   const spread=vs.length?[Math.min(...vs),Math.max(...vs)]:[0,0];
   document.getElementById('sizeLegend').innerHTML =
-    `<span class="quad-key"><span class="sz sz-lo"></span>${Z.lo}</span>`+
-    `<span class="quad-key"><span class="sz sz-hi"></span>${Z.hi}</span>`+
-    `<span class="quad-key">on screen: <strong>&nbsp;${Z.fmt(spread[0])} … ${Z.fmt(spread[1])}</strong>`+
-    `${Z.signed?'':' annualised'}</span>`+
-    (Z.signed?`<span class="quad-key">size is the <em>size</em> of the move; depth is its <em>direction</em></span>`:'');
+    `<span class="quad-key">distance from centre = <strong>&nbsp;${Z.axis}</strong></span>`+
+    `<span class="quad-key"><span class="sz sz-lo"></span>low volatility — small, opaque</span>`+
+    `<span class="quad-key"><span class="sz sz-hi"></span>high volatility — large, translucent</span>`+
+    `<span class="quad-key">on screen: <strong>&nbsp;${Z.fmt(spread[0])} … ${Z.fmt(spread[1])}</strong></span>`;
 }
 
 /* ── rotation by drag / arrow keys ── */
