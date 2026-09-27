@@ -51,7 +51,10 @@
 
   <div class="meta-row" id="rotRow" hidden>
     <div class="controls">
-      <span class="lbl">Drag the chart to rotate</span>
+      <span class="lbl">Z axis</span>
+      <button type="button" data-z="vol" class="active">Volatility</button>
+      <button type="button" data-z="ret">Absolute return</button>
+      <span class="lbl" style="margin-left:10px;">Drag to rotate</span>
       <button type="button" id="resetView">Reset view</button>
       <button type="button" id="faceOn">Face on</button>
       <span class="lbl" id="volHint"></span>
@@ -84,27 +87,49 @@
     equal-weighted baskets would put non-comparable points on one chart, so every sector is built
     the same way: constituents rebased to 100 and averaged. <span id="basisNote"></span>
     <br><br>
+    <strong>Corporate actions are repaired, and the repair is not always enough.</strong>
+    A split or bonus changes the share count and nothing else, so history is back-adjusted
+    onto the post-event basis and the name carries on normally — Motilal Oswal (3:1 bonus),
+    Paras (1:2 split) and Trent (1:2 bonus) are handled this way. A demerger is different:
+    the <em>company</em> changed, so no arithmetic makes the older bars describe the
+    business now being plotted, and comparing that reconstruction against its peers would be
+    a confident wrong number. For those, usable history starts at the event and the name
+    reads <strong>NA</strong> until it has enough of its own — which clears itself as the
+    window rolls forward.
+    <br><br>
+    Large moves that are <em>not</em> on the reviewed corporate-action list are left strictly
+    alone. F&amp;O stocks have no daily price band, so a 25–30% day is legal and often real —
+    Adani Enterprises in Feb 2023, IndusInd in Mar 2025, IEX in Jul 2025 — and smoothing
+    those away would erase exactly the risk this board exists to show.
+    <br><br>
     Every symbol is z-scored over an <strong>identical window</strong>. That matters more than it
     sounds: the same stock on the same day lands in a different spot if normalised over a different
     amount of history, so anything without enough history is excluded rather than rescaled.
     <span id="exclNote"></span>
     <br><br>
-    <strong>The 3D view puts volatility on the depth axis.</strong> RRG has no
+    <strong>The 3D view puts a third measure on the depth axis.</strong> RRG has no
     natural third axis — RS-Momentum is already the derivative of RS-Ratio, so the two
-    are a matched pair and anything on Z is a different measure bolted on. Volatility is
-    that measure here: trailing realised volatility, annualised, one reading per tail point,
-    so the trail moves in depth too rather than implying volatility held still. It answers
-    what the flat plot cannot — how much risk is behind a given relative strength.
+    are a matched pair and anything on Z is a different measure bolted on. Two are offered,
+    each with one reading per tail point so the trail moves in depth too rather than
+    implying the measure held still.
+    <br><br>
+    <strong>Volatility</strong> — trailing realised volatility, annualised. It answers what
+    the flat plot cannot: how much risk sits behind a given relative strength. Its reference
+    plane is the back of the box, since volatility is a magnitude with no natural zero.
+    <br><br>
+    <strong>Absolute return</strong> — the plain return over the stretch the tail covers, and
+    the more pointed of the two. RRG is <em>purely relative</em>: both its axes are measured
+    against the benchmark, so a security can sit deep in Leading while losing money, simply
+    falling more slowly than the index. This axis puts that back on the chart. Its plane sits
+    at <strong>zero</strong>, so the plane is break-even, a sphere in front of it made money,
+    one behind it lost money, and the stem's direction is the sign. Size is the size of the
+    move, depth is its direction.
     Sphere size is driven by volatility directly, not by perspective alone, so
     <em>bigger = more volatile</em> still holds after you rotate the chart; larger spheres
     are drawn more translucent so the volatile names in front don't hide the quiet ones
     behind them. Depth is still harder to read than a flat position, which is why this is a
     toggle beside the 2D board and not a replacement for it — the quadrant call should be
     made on the 2D plot.
-    <br><br>
-    One caveat the 3D view does <em>not</em> fix: RRG is purely relative, so a name can sit
-    in Leading while falling in absolute terms — beating the benchmark on the way down.
-    Volatility on Z says nothing about that.
     <br><br>
     RRG is a relative-strength tool, not a standalone buy/sell signal.
   </div>
@@ -126,7 +151,7 @@ let DATA=null, view='sectors', period='daily', tail=12, sectorPick='__all__';
 /* 3D camera. Volatility is the depth axis, so at yaw=0 a more volatile name
    sits nearer the viewer; yaw/pitch are nudged off zero by default so the
    depth is visible at all. */
-let dim='2', yaw=-26*Math.PI/180, pitch=15*Math.PI/180;
+let dim='2', zaxis='vol', yaw=-26*Math.PI/180, pitch=15*Math.PI/180;
 const HOME={yaw:-26*Math.PI/180, pitch:15*Math.PI/180};
 
 document.getElementById('quadLegend').innerHTML = QUADS.map(q =>
@@ -254,35 +279,63 @@ function render3d(){
   const svg=document.getElementById('chart');
   const W=1000, H=620;
 
-  /* vol is null when a symbol lacks a full volatility window at every tail
-     point; a partial window would make its earliest points noisier than its
-     latest, so it is dropped from 3D rather than plotted on a short window. */
+  /* The two Z metrics differ in kind, not just in units. Volatility is a
+     positive magnitude, so its reference plane sits at the back and depth
+     means "more". Absolute return is SIGNED, so its plane sits at zero and
+     depth means "made money / lost money" - which is the one thing an RRG
+     structurally cannot show, since both its axes are relative. */
+  const Z = zaxis==='ret' ? {
+    key:'ret', name:'absolute return', axis:'absolute return',
+    fmt:v=>(v>=0?'+':'')+v.toFixed(1)+'%', signed:true,
+    lo:'falling — behind the plane', hi:'rising — in front of the plane',
+  } : {
+    key:'vol', name:'volatility', axis:'volatility',
+    fmt:v=>v.toFixed(0)+'%', signed:false,
+    lo:'low volatility — small, opaque, at the back',
+    hi:'high volatility — large, translucent, toward you',
+  };
+
+  /* A metric is null when a symbol lacks a full window at every tail point; a
+     partial window would make its earliest points noisier than its latest, so
+     it is dropped from 3D rather than plotted on a short window. */
   const series=activeSeries()
-    .map(s=>({...s, tail:s.tail.slice(-tail), vol:(s.vol||[]).slice(-tail)}))
-    .filter(s=>s.vol.length===s.tail.length && s.vol.every(v=>v!=null));
+    .map(s=>({...s, tail:s.tail.slice(-tail), z:(s[Z.key]||[]).slice(-tail)}))
+    .filter(s=>s.z.length===s.tail.length && s.z.every(v=>v!=null));
   const novol=activeSeries().length - series.length;
   document.getElementById('volHint').textContent = series.length
-    ? `${series.length} plotted${novol?` · ${novol} without a full volatility window`:''}`
-    : 'nothing has a full volatility window on this timeframe';
+    ? `${series.length} plotted${novol?` · ${novol} without a full ${Z.name} window`:''}`
+    : `nothing has a full ${Z.name} window on this timeframe`;
   if(!series.length){ svg.innerHTML=''; return; }
 
   const show=detailed(series);
 
   // ── world normalisation: RS/Mom centred on 100, vol over its own range ──
   const xs=[], ys=[], vs=[];
-  series.forEach(s=>{ s.tail.forEach(([r,m])=>{xs.push(r);ys.push(m);}); s.vol.forEach(v=>vs.push(v)); });
+  series.forEach(s=>{ s.tail.forEach(([r,m])=>{xs.push(r);ys.push(m);}); s.z.forEach(v=>vs.push(v)); });
   const sym=arr=>{ const d=Math.max(0.25,...arr.map(v=>Math.abs(v-100)))*1.1; return [100-d,100+d]; };
   const [x0,x1]=sym(xs), [y0,y1]=sym(ys);
-  let v0=Math.min(...vs), v1=Math.max(...vs);
-  if(v1-v0 < 1e-6){ v0-=1; v1+=1; }
+
+  /* zPlane is where the shaded RRG plane sits and where the stems land: the
+     back for volatility, but ZERO for return, so the plane reads as the
+     break-even line and a stem's direction is its sign. */
+  let v0, v1, zPlane;
+  if(Z.signed){
+    const h=Math.max(1e-6, ...vs.map(Math.abs))*1.05;
+    v0=-h; v1=h; zPlane=0;
+  }else{
+    v0=Math.min(...vs); v1=Math.max(...vs);
+    if(v1-v0 < 1e-6){ v0-=1; v1+=1; }
+    zPlane=v0;
+  }
   const nx=v=>(v-100)/((x1-x0)/2), ny=v=>(v-100)/((y1-y0)/2);
-  const nz=v=>(-1+2*(v-v0)/(v1-v0))*Z_HALF;   // low vol at the back
-  const nvol=v=>(v-v0)/(v1-v0);               // 0..1, drives radius + opacity
+  const nz=v=>(-1+2*(v-v0)/(v1-v0))*Z_HALF;
+  // 0..1 magnitude, drives radius + opacity
+  const nvol=v=>Z.signed ? Math.abs(v)/v1 : (v-v0)/(v1-v0);
 
   // ── auto-fit: project everything at unit scale, then scale to the frame ──
   const probe=[];
   for(const bx of [-1,1]) for(const by of [-1,1]) for(const bz of [-Z_HALF,Z_HALF]) probe.push(rot(bx,by,bz));
-  series.forEach(s=>s.tail.forEach(([r,m],i)=>probe.push(rot(nx(r),ny(m),nz(s.vol[i])))));
+  series.forEach(s=>s.tail.forEach(([r,m],i)=>probe.push(rot(nx(r),ny(m),nz(s.z[i])))));
   const bx0=Math.min(...probe.map(p=>p.x)), bx1=Math.max(...probe.map(p=>p.x));
   const by0=Math.min(...probe.map(p=>p.y)), by1=Math.max(...probe.map(p=>p.y));
   const M=58;   // room for labels and for the largest sphere
@@ -304,7 +357,7 @@ function render3d(){
     `</radialGradient>`).join('')+'</defs>';
 
   // ── back plane (lowest volatility) carries the quadrants and the grid ──
-  const BZ=-Z_HALF;
+  const BZ=nz(zPlane);
   const plane=(ax,ay,bx,by)=>[P(ax,ay,BZ),P(bx,ay,BZ),P(bx,by,BZ),P(ax,by,BZ)].map(xy).join(' ');
   out+=`<polygon class="q-lead" points="${plane(0,0,1,1)}"/>`;
   out+=`<polygon class="q-weak" points="${plane(0,0,1,-1)}"/>`;
@@ -321,26 +374,26 @@ function render3d(){
   };
   const label=(l,txt)=>`<text class="tick halo" x="${l.x.toFixed(1)}" y="${(l.y+3.5).toFixed(1)}" text-anchor="middle">${txt}</text>`;
 
-  ticks(x0,x1).forEach(v=>{const a=pt(v,y0,v0),b=pt(v,y1,v0);
+  ticks(x0,x1).forEach(v=>{const a=pt(v,y0,zPlane),b=pt(v,y1,zPlane);
     out+=`<line class="grid" x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}"/>`+
          label(outward(a,b,30), v.toFixed(2));});
-  ticks(y0,y1).forEach(v=>{const a=pt(x0,v,v0),b=pt(x1,v,v0);
+  ticks(y0,y1).forEach(v=>{const a=pt(x0,v,zPlane),b=pt(x1,v,zPlane);
     out+=`<line class="grid" x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}"/>`+
          label(outward(a,b,32), v.toFixed(2));});
 
   // crosshair on the back plane, and the 100/100 line running through depth
-  out+=`<line class="cross" x1="${pt(100,y0,v0).x.toFixed(1)}" y1="${pt(100,y0,v0).y.toFixed(1)}" x2="${pt(100,y1,v0).x.toFixed(1)}" y2="${pt(100,y1,v0).y.toFixed(1)}"/>`;
-  out+=`<line class="cross" x1="${pt(x0,100,v0).x.toFixed(1)}" y1="${pt(x0,100,v0).y.toFixed(1)}" x2="${pt(x1,100,v0).x.toFixed(1)}" y2="${pt(x1,100,v0).y.toFixed(1)}"/>`;
+  out+=`<line class="cross" x1="${pt(100,y0,zPlane).x.toFixed(1)}" y1="${pt(100,y0,zPlane).y.toFixed(1)}" x2="${pt(100,y1,zPlane).x.toFixed(1)}" y2="${pt(100,y1,zPlane).y.toFixed(1)}"/>`;
+  out+=`<line class="cross" x1="${pt(x0,100,zPlane).x.toFixed(1)}" y1="${pt(x0,100,zPlane).y.toFixed(1)}" x2="${pt(x1,100,zPlane).x.toFixed(1)}" y2="${pt(x1,100,zPlane).y.toFixed(1)}"/>`;
   out+=`<line class="cross zax" x1="${pt(100,100,v0).x.toFixed(1)}" y1="${pt(100,100,v0).y.toFixed(1)}" x2="${pt(100,100,v1).x.toFixed(1)}" y2="${pt(100,100,v1).y.toFixed(1)}"/>`;
 
   // ── volatility axis: bottom-left depth edge, ticked in % ──
-  const vt=[v0,(v0+v1)/2,v1];
+  const vt=Z.signed ? [v0,0,v1] : [v0,(v0+v1)/2,v1];
   out+=`<line class="box" x1="${pt(x0,y0,v0).x.toFixed(1)}" y1="${pt(x0,y0,v0).y.toFixed(1)}" x2="${pt(x0,y0,v1).x.toFixed(1)}" y2="${pt(x0,y0,v1).y.toFixed(1)}"/>`;
   vt.forEach(v=>{const a=pt(x0,y0,v), inner=pt(x1,y1,v);
     out+=`<circle class="vtick" cx="${a.x.toFixed(1)}" cy="${a.y.toFixed(1)}" r="2"/>`+
-         label(outward(a,inner,20), v.toFixed(0)+'%');});
+         label(outward(a,inner,20), Z.fmt(v));});
   const vmid=outward(pt(x0,y0,(v0+v1)/2), pt(x1,y1,(v0+v1)/2), 44);
-  out+=`<text class="axis halo" x="${vmid.x.toFixed(1)}" y="${vmid.y.toFixed(1)}" text-anchor="middle">volatility</text>`;
+  out+=`<text class="axis halo" x="${vmid.x.toFixed(1)}" y="${vmid.y.toFixed(1)}" text-anchor="middle">${Z.axis}</text>`;
 
   // ── box wireframe, so the orientation stays legible while rotating ──
   const C=[];
@@ -348,11 +401,11 @@ function render3d(){
   const E=[[0,1],[2,3],[4,5],[6,7],[0,2],[1,3],[4,6],[5,7],[0,4],[1,5],[2,6],[3,7]];
   E.forEach(([a,b])=>{out+=`<line class="box" x1="${C[a].x.toFixed(1)}" y1="${C[a].y.toFixed(1)}" x2="${C[b].x.toFixed(1)}" y2="${C[b].y.toFixed(1)}"/>`;});
 
-  out+=`<text class="axis" x="${W/2}" y="${H-8}" text-anchor="middle">RS-Ratio · RS-Momentum on the shaded plane — depth is volatility</text>`;
+  out+=`<text class="axis" x="${W/2}" y="${H-8}" text-anchor="middle">RS-Ratio · RS-Momentum on the shaded plane — depth is ${Z.axis}</text>`;
 
   // ── spheres, far to near, so the big translucent ones land on top ──
   const drawn=series.map((s,i)=>{
-    const last=s.tail[s.tail.length-1], lv=s.vol[s.vol.length-1];
+    const last=s.tail[s.tail.length-1], lv=s.z[s.z.length-1];
     return {s, i, last, lv, p:pt(last[0],last[1],lv)};
   }).sort((a,b)=>a.p.z-b.p.z);
 
@@ -366,18 +419,18 @@ function render3d(){
     const op=OP_MAX-(OP_MAX-OP_MIN)*t;
 
     if(show && s.tail.length>1){
-      const path=s.tail.map(([rr,mm],j)=>xy(pt(rr,mm,s.vol[j]))).join(' ');
+      const path=s.tail.map(([rr,mm],j)=>xy(pt(rr,mm,s.z[j]))).join(' ');
       out+=`<polyline class="trail t3 ${cls}" points="${path}"/>`;
     }
     // stem back to the volatility-floor plane: without it the depth of a
     // sphere is unreadable, and its RS/Momentum position is the whole point
-    const foot=pt(last[0],last[1],v0);
+    const foot=pt(last[0],last[1],zPlane);
     out+=`<line class="stem ${cls}" x1="${p.x.toFixed(1)}" y1="${p.y.toFixed(1)}" x2="${foot.x.toFixed(1)}" y2="${foot.y.toFixed(1)}"/>`;
     out+=`<circle class="shadow" cx="${foot.x.toFixed(1)}" cy="${foot.y.toFixed(1)}" r="2.4"/>`;
 
     out+=`<circle class="sph ${cls}${s.cashOnly?' cash':''}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}"`+
          ` r="${r.toFixed(1)}" fill="url(#sph-${cls})" fill-opacity="${op.toFixed(2)}"`+
-         ` data-i="${i}" tabindex="0"><title>${esc(s.name)} · RS ${last[0].toFixed(2)} · Mom ${last[1].toFixed(2)} · vol ${lv.toFixed(1)}% · ${q}</title></circle>`;
+         ` data-i="${i}" tabindex="0"><title>${esc(s.name)} · RS ${last[0].toFixed(2)} · Mom ${last[1].toFixed(2)} · ${Z.name} ${Z.fmt(lv)} · ${q}</title></circle>`;
     if(show) out+=`<text class="plabel halo" x="${(p.x+r+5).toFixed(1)}" y="${(p.y+4).toFixed(1)}">${esc(s.name)}</text>`;
   });
 
@@ -389,10 +442,13 @@ function render3d(){
     el.addEventListener('blur',hideTip);
   });
 
+  const spread=vs.length?[Math.min(...vs),Math.max(...vs)]:[0,0];
   document.getElementById('sizeLegend').innerHTML =
-    `<span class="quad-key"><span class="sz sz-lo"></span>low volatility — small, opaque, at the back</span>`+
-    `<span class="quad-key"><span class="sz sz-hi"></span>high volatility — large, translucent, toward you</span>`+
-    `<span class="quad-key">range on screen: <strong>&nbsp;${v0.toFixed(0)}%–${v1.toFixed(0)}%</strong> annualised</span>`;
+    `<span class="quad-key"><span class="sz sz-lo"></span>${Z.lo}</span>`+
+    `<span class="quad-key"><span class="sz sz-hi"></span>${Z.hi}</span>`+
+    `<span class="quad-key">on screen: <strong>&nbsp;${Z.fmt(spread[0])} … ${Z.fmt(spread[1])}</strong>`+
+    `${Z.signed?'':' annualised'}</span>`+
+    (Z.signed?`<span class="quad-key">size is the <em>size</em> of the move; depth is its <em>direction</em></span>`:'');
 }
 
 /* ── rotation by drag / arrow keys ── */
@@ -443,9 +499,15 @@ function syncChrome(){
       ? `${n} stocks — pick a sector for labels and trails`
       : `${n} plotted`;
   const ex=(DATA&&DATA.excluded[period])||[];
-  const names=ex.filter(e=>e.kind!=='sector').map(e=>e.name);
-  document.getElementById('exclNote').textContent = names.length
-    ? `Excluded on this timeframe: ${names.join(', ')}.` : '';
+  const rows=ex.filter(e=>e.kind!=='sector');
+  /* A name sidelined by a demerger is NOT the same as one that is simply too
+     new, so it is reported as NA with the reason and a count that shows the
+     note clearing itself as the window rolls forward. */
+  const na=rows.filter(e=>e.ca), plain=rows.filter(e=>!e.ca);
+  const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  document.getElementById('exclNote').innerHTML =
+    (na.length ? na.map(e=>`<strong>${esc(e.name)}: NA</strong> — ${esc(e.reason)}.`).join(' ')+' ' : '')
+    + (plain.length ? `Excluded on this timeframe: ${plain.map(e=>esc(e.name)).join(', ')}. ` : '');
   const secs=(DATA&&DATA.sectors[period])||[];
   const part=secs.filter(s=>s.basis<s.count);
   document.getElementById('basisNote').textContent = part.length
@@ -466,6 +528,7 @@ wire('data-view', v=>{view=v;});
 wire('data-period', p=>{period=p;});
 wire('data-tail', t=>{tail=+t;});
 wire('data-dim', d=>{dim=d;});
+wire('data-z', z=>{zaxis=z;});
 document.getElementById('sectorPick').addEventListener('change',e=>{
   sectorPick=e.target.value; syncChrome(); render();
 });
