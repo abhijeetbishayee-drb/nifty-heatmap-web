@@ -486,7 +486,12 @@
    Volatility is the depth axis. Size is driven by volatility itself rather
    than by perspective alone, so the reading survives rotation; the inverse
    opacity is what keeps the big front spheres from hiding the small ones. */
-#chart.d3{ cursor:grab; touch-action:none; }
+/* In 3D the whole canvas is a drag surface, so nothing inside it may swallow
+   the gesture: starting a drag on a label used to select text instead of
+   rotating the globe. */
+#chart.d3{ cursor:grab; touch-action:none; user-select:none; -webkit-user-select:none; }
+#chart.d3 text{ pointer-events:none; }
+#chart.d3 .globe, #chart.d3 .ind-thread, #chart.d3 .trail, #chart.d3 .stem{ pointer-events:none; }
 #chart.d3:active{ cursor:grabbing; }
 #chart .box{ stroke:var(--border); stroke-width:1; opacity:0.55; fill:none; }
 #chart .cross.zax{ stroke-dasharray:4 3; opacity:0.55; }
@@ -521,3 +526,12 @@
    it reads as unrelated - which is exactly how the 3D toggle got missed. */
 .ctl-group{ display:inline-flex; align-items:center; gap:6px; flex-wrap:nowrap; }
 .controls{ gap:6px 14px; }
+
+/* RRG globe frame + industry threads */
+#chart .globe{ fill:none; stroke:var(--border); stroke-width:1; opacity:0.7; }
+#chart .globe.faint{ opacity:0.18; }
+#chart .origin{ fill:var(--text-dim); opacity:0.8; }
+#chart .ind-thread{ fill:none; stroke-width:2.4; opacity:0.85; stroke-linejoin:round; stroke-linecap:round; }
+.ind-key{ display:inline-flex; align-items:center; gap:6px; }
+.ind-key .sw{ width:16px; height:3px; border-radius:2px; }
+#chart.d3 .trail.t3{ opacity:0.12; }

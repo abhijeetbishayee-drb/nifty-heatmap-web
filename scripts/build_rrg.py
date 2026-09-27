@@ -24,6 +24,7 @@ sys.path.insert(0, os.path.join(REPO_ROOT, "nifty-heatmap-core"))
 
 from nifty_heatmap_core import (
     HEADERS, FNO_SECTORS, FNO_ALL, SECTOR_INDICES, CASH_ONLY, short_name,
+    BROAD_INDUSTRIES, INDUSTRY_OF,
 )
 from nifty_heatmap_core.rrg import (
     DAILY, WEEKLY, to_weekly, rrg_tail, equal_weight_series, min_bars, vol_tail,
@@ -145,6 +146,13 @@ def main():
         print("rrg_data.json is current for the latest close; skipping")
         return
 
+    # every sector must belong to exactly one broad industry, or the 3D view
+    # would silently drop it from its industry's connecting line
+    orphans = sorted(set(FNO_SECTORS) - set(INDUSTRY_OF))
+    if orphans:
+        print(f"ERROR: sectors with no broad industry: {orphans}", file=sys.stderr)
+        sys.exit(1)
+
     sector_index_tickers = [v["ticker"] for v in SECTOR_INDICES.values()]
     universe = sorted(set(FNO_ALL) | set(sector_index_tickers) | {BENCHMARK})
     # The daily job is the right place to say whether the table is armed: its
@@ -216,6 +224,7 @@ def main():
                  "event, because the pre-event bars belong to a larger "
                  "company and are not comparable with the name's peers."),
         "config": {"daily": DAILY, "weekly": WEEKLY},
+        "industries": BROAD_INDUSTRIES,
         "sectors": {}, "stocks": {}, "excluded": {},
     }
 
@@ -247,6 +256,7 @@ def main():
                                      "ca": bool(note and note["kind"] == "economic")})
                     continue
                 stocks.append({"name": short_name(t), "ticker": t, "sector": sector,
+                               "industry": INDUSTRY_OF.get(sector),
                                "cashOnly": t in CASH_ONLY, "tail": tail,
                                "vol": vol_tail(prepped[0], cfg, len(tail)),
                                "ret": ret_tail(prepped[0], cfg, len(tail))})
@@ -300,6 +310,7 @@ def main():
                                  "reason": "no constituent covers the window"})
                 continue
             block = {"name": sector, "kind": "synthetic",
+                     "industry": INDUSTRY_OF.get(sector),
                      "label": f"{sector} (equal-weight)",
                      "count": len(tickers), "basis": len(used),
                      "dropped": dropped, "tail": tail,
