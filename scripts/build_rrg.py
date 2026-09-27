@@ -29,6 +29,7 @@ from nifty_heatmap_core.rrg import (
     DAILY, WEEKLY, to_weekly, rrg_tail, equal_weight_series, min_bars, vol_tail,
     ret_tail, apply_corporate_actions, CORPORATE_ACTIONS,
 )
+from nifty_heatmap_core.corporate_actions import table_status, upcoming
 
 BENCHMARK = "^NSEI"
 BENCH_LABEL = "NIFTY 50"
@@ -146,6 +147,14 @@ def main():
 
     sector_index_tickers = [v["ticker"] for v in SECTOR_INDICES.values()]
     universe = sorted(set(FNO_ALL) | set(sector_index_tickers) | {BENCHMARK})
+    # The daily job is the right place to say whether the table is armed: its
+    # log is short and read, unlike the per-minute price build.
+    print(f"  {table_status()}")
+    for ticker, spec, days in upcoming():
+        print(f"  UPCOMING: {ticker} goes ex {spec['what']} in {days} day(s) "
+              f"({spec['exDate']}) — confirm the ratio {spec['ratio']:.4f} "
+              "before the date, the live board gets only one chance at it")
+
     print(f"fetching 5y daily history for {len(universe)} symbols…")
     hist = fetch_all(universe)
 

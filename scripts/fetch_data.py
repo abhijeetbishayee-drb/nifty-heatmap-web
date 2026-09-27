@@ -11,6 +11,7 @@ from nifty_heatmap_core import (
     fetch_all, build_rows, compute_movers, build_sectors, attach_sector_indices,
     build_pinned_groups,
 )
+from nifty_heatmap_core.corporate_actions import live_warnings
 
 
 def sort_by_pct(rows):
@@ -88,6 +89,13 @@ def main():
             "breadth": {"advancers": advancers, "decliners": decliners, "total": fno_loaded},
             "generatedAt": generated_at,
         }, f)
+
+    # Silent on an ordinary day; speaks up only when a corporate action is
+    # near, has just been applied, or was listed for today and did NOT fire -
+    # the last of which means the table is wrong and the board is showing a
+    # raw cliff right now.
+    for line in live_warnings(fno_rows):
+        print(line)
 
     print(
         f"Wrote data.json ({n50_loaded}/{len(NIFTY50)}) and "
