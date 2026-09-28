@@ -286,12 +286,17 @@ const INDUSTRY_COLOURS = {
   'Healthcare & Technology': '#3fb08a',
 };
 let zoom = 1;               // scroll wheel; clamped in the handler
-/* Click-to-isolate. At rest the globe shows position only - 23 sectors each
-   trailing 12 periods was the clutter. Clicking a bubble picks its INDUSTRY:
-   that industry keeps full colour and gets its trails and its connecting
-   thread back, everything else drops away. Click it again, or anywhere off a
-   bubble, to clear. */
-let focusInd = null, focusName = null;
+/* Click-to-isolate. At rest the globe shows position only - 24 sectors, or
+   229 stocks, each trailing 12 periods was the clutter.
+
+   WHAT A CLICK ISOLATES DEPENDS ON THE VIEW, because the useful peer group
+   differs. Among STOCKS it is the SECTOR: 3 to 19 names, tight enough to read
+   and the group an individual stock is actually judged against. Among SECTORS
+   the bubble IS a sector, so the only grouping left is the broad INDUSTRY.
+   Whichever it is, the group keeps full colour, its names and its trails, and
+   everything else recedes. Click again, or anywhere off a bubble, to clear. */
+const focusField = () => view === 'stocks' ? 'sector' : 'industry';
+let focusKey = null, focusName = null;
 
 const CAM_D = 3.4;          // camera distance in world units
 const Z_HALF = 0.85;        // depth half-extent of the data
@@ -488,10 +493,10 @@ function render3d(){
      big points and reads as clutter, so there are no connecting lines there
      at all - clicking still isolates the industry, it just does it by
      dimming. Among stocks the line is what makes an industry followable. */
-  if(focusInd && view==='stocks'){
-    const mem=series.filter(sx=>sx.industry===focusInd);
+  if(focusKey && view==='stocks'){
+    const mem=series.filter(sx=>sx[focusField()]===focusKey);
     if(mem.length>1){
-      const col=INDUSTRY_COLOURS[focusInd]||'var(--text-dim)';
+      const col=INDUSTRY_COLOURS[mem[0].industry]||'var(--text-dim)';
       const seq=mem.map(sx=>({last:sx.tail[sx.tail.length-1]})).sort((a,b)=>a.last[0]-b.last[0]);
       for(let i=1;i<seq.length;i++){
         const A=pt(seq[i-1].last[0],seq[i-1].last[1]), B=pt(seq[i].last[0],seq[i].last[1]);
@@ -506,14 +511,14 @@ function render3d(){
     return {s, i, last, lv:s.z[s.z.length-1], p:pt(last[0],last[1])};
   }).sort((a,b)=>a.p.z-b.p.z).forEach(({s,i,last,lv,p})=>{
     const q=quadrant(last[0],last[1]), cls=quadCls(q), far=p.z<0;
-    const onStage = !focusInd || s.industry===focusInd;
+    const onStage = !focusKey || s[focusField()]===focusKey;
     const isPick  = focusName && s.name===focusName;
     const t=Math.sqrt(szN(lv));
     const r=(R_MIN+(R_MAX-R_MIN)*t)*(0.78+0.22*p.s)*(show?1:0.62)*Math.sqrt(zoom);
     const op=OP_MAX-(OP_MAX-OP_MIN)*t;
     let g='';
     // trails are the clutter, so they appear only for the industry in focus
-    if(onStage && focusInd && s.tail.length>1){
+    if(onStage && focusKey && s.tail.length>1){
       const path=s.tail.map(([rr,mm])=>xy(pt(rr,mm))).join(' ');
       g+=`<polyline class="trail t3 ${cls}${far?' far':''}" points="${path}"/>`;
     }
@@ -523,7 +528,7 @@ function render3d(){
        ` · conviction ${Math.hypot(last[0]-100,last[1]-100).toFixed(2)} · ${Z.name} ${Z.fmt(lv)}`+
        `${s.industry?' · '+esc(s.industry):''}</title></circle>`;
     // in focus mode only the chosen industry keeps its names
-    if(!far && (focusInd ? onStage : show))
+    if(!far && (focusKey ? onStage : show))
       g+=`<text class="plabel halo${onStage?'':' muted'}" x="${(p.x+r+5).toFixed(1)}" y="${(p.y+4).toFixed(1)}">${esc(s.name)}</text>`;
     put(p.z, g);
   });
@@ -531,14 +536,14 @@ function render3d(){
   svg.innerHTML = back + body + front;
   svg.addEventListener('click', e=>{
     if(e.target.classList && e.target.classList.contains('sph')) return;
-    if(focusInd){ focusInd=null; focusName=null; hideTip(); render3d(); }
+    if(focusKey){ focusKey=null; focusName=null; hideTip(); render3d(); }
   });
   svg.querySelectorAll('.sph').forEach(el=>{
     el.addEventListener('click', e=>{
       e.stopPropagation();
       const s0=series[+el.dataset.i];
-      if(focusName===s0.name){ focusInd=null; focusName=null; }
-      else { focusInd=s0.industry||null; focusName=s0.name; }
+      if(focusName===s0.name){ focusKey=null; focusName=null; }
+      else { focusKey=s0[focusField()]||null; focusName=s0.name; }
       hideTip(); render3d();
     });
     el.addEventListener('mouseenter',e=>showTip(series[+el.dataset.i], e));
@@ -550,9 +555,9 @@ function render3d(){
   document.getElementById('indLegend').hidden = true;
 
   document.getElementById('sizeLegend').innerHTML =
-    (focusInd
-      ? `<span class="quad-key"><strong>${focusInd}</strong>&nbsp;isolated — click it again, or any empty space, to clear</span>`
-      : `<span class="quad-key">click a bubble to isolate its industry${view==='stocks'?' and link it':''}</span>`)+
+    (focusKey
+      ? `<span class="quad-key"><strong>${focusKey}</strong>&nbsp;isolated (${series.filter(sx=>sx[focusField()]===focusKey).length} of ${series.length}) — click it again, or any empty space, to clear</span>`
+      : `<span class="quad-key">click a bubble to isolate its ${view==='stocks'?'sector, and link it':'industry'}</span>`)+
     `<span class="quad-key"><strong>centre</strong>&nbsp;= on the crosshair, quadrant barely means anything</span>`+
     `<span class="quad-key"><strong>shell</strong>&nbsp;= decisively in its quadrant</span>`+
     `<span class="quad-key"><span class="sz sz-lo"></span>low ${Z.size} — small, opaque</span>`+
@@ -566,8 +571,13 @@ function render3d(){
   const start=(x,y)=>{ drag={x,y,yaw,pitch}; hideTip(); };
   const move=(x,y)=>{
     if(!drag) return;
+    /* Both axes follow the mouse, as if the globe's front face were being
+       dragged. Pitch used to be negated, so horizontal tracked the pointer
+       while vertical fought it - verified against the projection: raising
+       pitch moves the TOP point DOWN the screen, so dragging down must RAISE
+       pitch, not lower it. */
     yaw = drag.yaw + (x-drag.x)*0.006;
-    pitch = Math.max(-1.35, Math.min(1.35, drag.pitch - (y-drag.y)*0.006));
+    pitch = Math.max(-1.35, Math.min(1.35, drag.pitch + (y-drag.y)*0.006));
     render3d();
   };
   const end=()=>{ drag=null; };
@@ -669,7 +679,7 @@ function wire(attr, fn){
          industry's members differ between sectors and stocks, and carrying a
          stale focus across meant the next view opened already filtered with
          no visible reason why. */
-      focusInd=null; focusName=null;
+      focusKey=null; focusName=null;
       fn(b.getAttribute(attr)); syncChrome(); render();
     });
   });
@@ -681,7 +691,7 @@ wire('data-dim', d=>{dim=d;});
 wire('data-z', z=>{zaxis=z;});
 wire('data-basket', b=>{basket=b;});
 document.getElementById('sectorPick').addEventListener('change',e=>{
-  sectorPick=e.target.value; focusInd=null; focusName=null; syncChrome(); render();
+  sectorPick=e.target.value; focusKey=null; focusName=null; syncChrome(); render();
 });
 
 async function load(){
