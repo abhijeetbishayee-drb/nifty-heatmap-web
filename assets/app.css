@@ -572,3 +572,8 @@
 #chart .sph.picked{ stroke:var(--text); stroke-width:2.2; }
 #chart.d3{ cursor:grab; }
 #chart.d3 .sph{ cursor:pointer; }
+
+/* The dome's rim - the edge of the hemisphere the data lives on. Drawn as
+   firmly as the two quadrant dividers, because it is the boundary of the
+   whole figure. */
+#chart .globe.rim{ opacity:0.7; stroke:var(--text-dim); stroke-width:1.3; }

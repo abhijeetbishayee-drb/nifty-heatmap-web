@@ -391,9 +391,13 @@ function render3d(){
   const sz0=Math.min(...vs), sz1=Math.max(...vs);
   const szN=v=>(sz1-sz0<1e-9)?0.5:clamp(((Z.signed?Math.abs(v):v)-sz0)/(sz1-sz0),0,1);
 
+  /* Fit to the DOME, not to a whole sphere. Fitting the sphere reserved room
+     for a half that is never drawn, so the dome sat smaller than it needed to
+     once rotated. */
   const probe=[];
-  for(let i=0;i<32;i++){const a=i/32*2*Math.PI;
-    probe.push(rot(Math.cos(a),Math.sin(a),0), rot(Math.cos(a),0,Math.sin(a)), rot(0,Math.cos(a),Math.sin(a)));}
+  for(let la=-90; la<=90; la+=15)
+    for(let lo=-90; lo<=90; lo+=15)
+      probe.push(rot(...world(lo*Math.PI/180, la*Math.PI/180, 1)));
   const bx0=Math.min(...probe.map(p=>p.x)), bx1=Math.max(...probe.map(p=>p.x));
   const by0=Math.min(...probe.map(p=>p.y)), by1=Math.max(...probe.map(p=>p.y));
   const M=64;
@@ -415,10 +419,10 @@ function render3d(){
   let back='', body='', front='';
   const put=(depth, svgStr)=>{ if(depth<0) back+=svgStr; else front+=svgStr; };
 
-  const arcSplit=(fn, cls)=>{
+  const arcSplit=(fn, cls, a0=0, a1=360)=>{
     let run=[], runDepth=null;
     const flush=()=>{ if(run.length>1) put(runDepth, `<polyline class="${cls}${runDepth<0?' far':''}" points="${run.join(' ')}"/>`); run=[]; };
-    for(let a=0;a<=360;a+=3){
+    for(let a=a0;a<=a1;a+=3){
       const t=a*Math.PI/180, w=fn(t), p=P(...w), dep=p.z<0?-1:1;
       if(runDepth===null) runDepth=dep;
       if(dep!==runDepth){ run.push(xy(p)); flush(); runDepth=dep; }
@@ -434,12 +438,17 @@ function render3d(){
     `<stop offset="100%" stop-color="var(--${q.cls})" stop-opacity="0.82"/>`+
     `</radialGradient>`).join('')+'</defs>';
 
-  // the two circles that define the quadrants
-  arcSplit(t=>world(t,0,1), 'globe equator');
-  arcSplit(t=>world(0,t,1), 'globe meridian');
+  /* A DOME, not a sphere. Longitude is capped inside +/-90 so that every
+     name keeps positive depth and nothing can hide behind the globe - which
+     leaves the far hemisphere permanently empty. Drawing it anyway was just a
+     dark half that invited the question "what is over there?", so the frame
+     now stops at the rim and the shape matches the data it holds. */
+  arcSplit(t=>world(t,0,1), 'globe equator',  -90, 90);   // equator  = Mom 100
+  arcSplit(t=>world(0,t,1), 'globe meridian', -90, 90);   // meridian = RS 100
+  arcSplit(t=>[Math.cos(t), Math.sin(t), 0], 'globe rim');  // the dome's edge
   [-0.9,-0.45,0.45,0.9].forEach(f=>{
-    arcSplit(t=>world(t, f*LAT, 1), 'globe faint');
-    arcSplit(t=>world(f*LON, t, 1), 'globe faint');
+    arcSplit(t=>world(t, f*LAT, 1), 'globe faint', -90, 90);
+    arcSplit(t=>world(f*LON, t, 1), 'globe faint', -90, 90);
   });
 
   /* ── the globe body: four tinted quadrant faces ───────────────────────
@@ -453,8 +462,24 @@ function render3d(){
      +/-150 x +/-72 degree box, leaving the polar caps and the far gap
      uncovered. */
   const Oc=P(0,0,0);
-  const silR=Math.max(...probe.map(p=>Math.hypot(ox+k*p.x-Oc.x, oy+k*p.y-Oc.y)));
-  body=`<circle class="globe-body" cx="${Oc.x.toFixed(1)}" cy="${Oc.y.toFixed(1)}" r="${silR.toFixed(1)}"/>`;
+  /* The dome's silhouette is no longer a circle - rotate it and the rim
+     becomes an ellipse with the cap bulging past it. A hemisphere is convex,
+     so its outline is exactly the convex hull of its projected surface: dense
+     samples, then a monotone-chain hull. Cheap, and correct at every angle. */
+  const surf=[];
+  for(let la=-90; la<=90; la+=10)
+    for(let lo=-90; lo<=90; lo+=10){
+      const q0=P(...world(lo*Math.PI/180, la*Math.PI/180, 1));
+      surf.push([q0.x,q0.y]);
+    }
+  const hull=(pts)=>{
+    pts=pts.slice().sort((a,b)=>a[0]-b[0]||a[1]-b[1]);
+    const cr=(o,a,b)=>(a[0]-o[0])*(b[1]-o[1])-(a[1]-o[1])*(b[0]-o[0]);
+    const half=(arr)=>{const h=[];for(const q of arr){while(h.length>1&&cr(h[h.length-2],h[h.length-1],q)<=0)h.pop();h.push(q);}return h;};
+    const lo=half(pts), hi=half(pts.slice().reverse());
+    return lo.slice(0,-1).concat(hi.slice(0,-1));
+  };
+  body=`<polygon class="globe-body" points="${hull(surf).map(q=>`${q[0].toFixed(1)},${q[1].toFixed(1)}`).join(' ')}"/>`;
 
   const walk=(from,to,fn,out2)=>{const N=18;for(let i=0;i<=N;i++){out2.push(xy(P(...fn(from+(to-from)*i/N))));}};
   const quadFace=(ls,lt,cls)=>{
