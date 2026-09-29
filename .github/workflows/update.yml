@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  actions: write          # to dispatch the daily RRG rebuild after the close
 
 concurrency:
   group: update-data
@@ -40,3 +41,38 @@ jobs:
           git add data.json sector_data.json
           git diff --staged --quiet || git commit -m "Update data.json + sector_data.json"
           git push
+
+      # ── the RRG rebuild rides on THIS job's cadence, not on `schedule` ──
+      # rrg.yml's own cron has fired once in its life and was 7h30m late; the
+      # weekday before that it did not fire at all. This job, by contrast, is
+      # driven every minute by the external pinger and is demonstrably
+      # reliable, so it is the right thing to hang a once-a-day kick off.
+      #
+      # workflow_dispatch is one of the two events GitHub explicitly lets
+      # GITHUB_TOKEN trigger (the recursion guard exempts it), so no PAT.
+      #
+      # Idempotent by construction: it asks the API whether rrg.yml has run
+      # since today's 10:45Z slot and dispatches only if it has not, so the
+      # ~300 pings that follow each find the run and do nothing. never fails
+      # the price job - a broken kicker must not stop prices updating.
+      - name: Kick the daily RRG rebuild once the cash market has closed
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          dow=$(date -u +%u)                  # 1-5 = Mon-Fri
+          now=$(date -u +%H%M)                # 10:45Z = 16:15 IST
+          if [ "$dow" -gt 5 ]; then echo "weekend, skipping"; exit 0; fi
+          if [ "$now" -lt 1045 ] || [ "$now" -ge 1400 ]; then
+            echo "outside the 10:45-14:00Z kick window ($now), skipping"; exit 0
+          fi
+          cutoff="$(date -u +%Y-%m-%d)T10:45:00Z"
+          n=$(gh run list --workflow=rrg.yml --limit 40 --json createdAt \
+                -q "[.[] | select(.createdAt >= \"$cutoff\")] | length") || n=""
+          if [ -z "$n" ]; then echo "could not read run history, not dispatching"; exit 0; fi
+          if [ "$n" -eq 0 ]; then
+            gh workflow run rrg.yml && echo "dispatched RRG rebuild (none since $cutoff)"
+          else
+            echo "RRG already rebuilt since $cutoff ($n run(s))"
+          fi

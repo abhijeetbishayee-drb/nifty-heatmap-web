@@ -208,6 +208,11 @@ def main():
 
     out = {
         "generatedAt": datetime.now(timezone.utc).isoformat(),
+        # The last daily bar the build actually saw. generatedAt says when the
+        # job ran; this says what the job ran ON, which is the question the
+        # board is really being asked. It is a real NSE session date, so it
+        # stays right across holidays, when a calendar guess would not.
+        "lastBar": datetime.fromtimestamp(dates[-1], IST).date().isoformat(),
         "benchmark": {"ticker": BENCHMARK, "label": BENCH_LABEL},
         "note": ("Approximation of JdK RS-Ratio/RS-Momentum, not the licensed "
                  "formula. Every symbol is z-scored over an identical window; "

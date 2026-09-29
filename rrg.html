@@ -815,12 +815,54 @@ async function load(){
     const secs=[...new Set((DATA.stocks.daily||[]).map(s=>s.sector))].sort();
     document.getElementById('sectorPick').innerHTML =
       `<option value="__all__">All sectors</option>`+secs.map(s=>`<option value="${s}">${s}</option>`).join('');
-    const g=new Date(DATA.generatedAt);
-    setStatus('Computed '+g.toLocaleString('en-IN',{timeZone:'Asia/Kolkata',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})+' IST · daily rebuild', false);
+    stamp();
     syncChrome(); render();
   }catch(e){ setStatus('Could not reach rrg_data.json',true); }
 }
 load();
+setInterval(()=>{ if(DATA) stamp(); }, 5*60*1000);   // amber can arrive while the tab sits open
+
+/* ── how fresh is this board? ───────────────────────────────────────────
+   generatedAt says when the JOB ran; lastBar says which session it ran ON,
+   and only the second one answers "am I looking at the last close". Both
+   are shown. lastBar is a real NSE session date, so it stays correct
+   through holidays where a calendar guess would not.
+
+   The amber flag is a statement about the JOB, not the data: the rebuild
+   is scheduled for 16:15 IST on weekdays and GitHub's `schedule` trigger
+   has already missed a day and run 7.5h late once, so silence is not
+   evidence that it ran. Known limit: on an NSE holiday the build correctly
+   no-ops, generatedAt stays put, and this goes amber anyway - the "bars
+   through" date beside it is what tells you the data is in fact fine. */
+/* Pure, so every branch can be tested against a fabricated clock rather
+   than by waiting for 18:30 on a Tuesday. Overdue = it is a weekday, the
+   16:15 IST slot passed more than two hours ago, and the newest build still
+   predates that slot. */
+function rebuildOverdue(gen, now){
+  const p=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Kolkata',
+    weekday:'short',hour:'2-digit',minute:'2-digit',hour12:false})
+    .formatToParts(now).map(x=>[x.type,x.value]));
+  if(['Sat','Sun'].includes(p.weekday)) return false;
+  if(+p.hour*60 + +p.minute < 18*60+30) return false;     // not due yet
+  const slot=new Date(now); slot.setUTCHours(10,45,0,0);  // today's 16:15 IST
+  return gen < slot;
+}
+window.rebuildOverdue = rebuildOverdue;
+
+function stamp(){
+  const g=new Date(DATA.generatedAt);
+  const fmt=(d,o)=>d.toLocaleString('en-IN',Object.assign({timeZone:'Asia/Kolkata'},o));
+  let txt='Computed '+fmt(g,{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})+' IST';
+  if(DATA.lastBar){
+    const b=new Date(DATA.lastBar+'T12:00:00+05:30');
+    txt+=' · bars through '+fmt(b,{day:'2-digit',month:'short'});
+  }
+  const overdue = rebuildOverdue(g, new Date());
+  const tag=document.getElementById('statusTag');
+  tag.classList.toggle('overdue', overdue);
+  setStatus(txt+(overdue ? ' · rebuild overdue' : ' · daily rebuild'), false);
+}
+
 window.addEventListener('resize',()=>{hideTip();});
 </script>
 </body>

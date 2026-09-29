@@ -161,6 +161,11 @@
     100%{ box-shadow:0 0 0 0 transparent; }
   }
   .status.stale .live-dot{ background:var(--b-loss-3); animation:none; }
+  /* amber = the scheduled rebuild has not run when it should have.
+     Distinct from .stale (red, the feed is unreachable): the data here
+     is readable and correct as of its own date, it is just not today's. */
+  .status.overdue .live-dot{ background:var(--q-weak); animation:none; }
+  .status.overdue #statusText{ color:var(--q-weak); }
   .legend{ display:flex; align-items:center; gap:6px 5px; flex-wrap:wrap; }
   .legend .chip{ width:16px; height:10px; border-radius:2px; }
   .legend span.lbl{ margin:0 2px; }
