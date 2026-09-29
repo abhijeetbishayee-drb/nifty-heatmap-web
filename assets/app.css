@@ -490,12 +490,17 @@
    the gesture: starting a drag on a label used to select text instead of
    rotating the globe. */
 #chart.d3{ cursor:grab; touch-action:none; user-select:none; -webkit-user-select:none; }
-#chart.d3 text{ pointer-events:none; }
-#chart.d3 .globe, #chart.d3 .ind-thread, #chart.d3 .trail, #chart.d3 .stem,
-#chart.d3 .dot-s, #chart.d3 .quad-face, #chart.d3 .globe-body{ pointer-events:none; }
-/* ^ the quadrant faces and the dome body are painted OVER the bubbles, so
-   without this they swallow every click: measured, a click on a bubble's
-   own centre had target polygon.quad-face. Only .sph is clickable. */
+/* NOTHING decorative takes a pointer, in EITHER plot. Only .sph (3D) and
+   .dot (2D) are targets. These were .d3-scoped, and the 2D board had the
+   same fault in a quieter form: measured by elementFromPoint over every
+   dot centre, a text.plabel sat on Information Technology's own dot and a
+   polyline.trail sat on TCS's, so those two could not be hovered at all.
+   In 3D it was worse - the quadrant faces are painted OVER the bubbles,
+   so a click on a bubble's centre had target polygon.quad-face. */
+#chart text{ pointer-events:none; }
+#chart .globe, #chart .ind-thread, #chart .trail, #chart .stem,
+#chart .dot-s, #chart .quad-face, #chart .globe-body,
+#chart .grid, #chart .cross{ pointer-events:none; }
 #chart.d3:active{ cursor:grabbing; }
 #chart .box{ stroke:var(--border); stroke-width:1; opacity:0.55; fill:none; }
 #chart .cross.zax{ stroke-dasharray:4 3; opacity:0.55; }
