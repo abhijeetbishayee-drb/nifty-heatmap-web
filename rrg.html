@@ -60,7 +60,7 @@
       <span class="lbl" style="margin-left:10px;">Drag to rotate</span>
       <button type="button" id="resetView">Reset view</button>
       <button type="button" id="faceOn">Face on</button>
-      <span class="lbl">· scroll to zoom at the pointer · shift-drag to pan · double-click to clear</span>
+      <span class="lbl">· pinch or ⌘-scroll to zoom at the pointer · shift-drag to pan · double-click to clear</span>
       <span class="lbl" id="volHint"></span>
     </div>
   </div>
@@ -684,10 +684,16 @@ function render3d(){
     window.addEventListener('pointerup',onUp);
     window.addEventListener('pointercancel',onUp); });
   svg.addEventListener('contextmenu',e=>{ if(dim==='3') e.preventDefault(); });
-  /* Scroll zooms. passive:false because the page must NOT scroll while the
-     pointer is over the globe - otherwise a zoom gesture walks the page. */
+  /* ZOOM IS PINCH OR CMD/CTRL-WHEEL. A plain wheel scrolls the PAGE.
+     Taking the wheel outright meant the page could not be scrolled at all
+     while the cursor sat over the globe - and after clicking a bubble that
+     is exactly where the cursor is, so the page appeared frozen. Browsers
+     deliver a trackpad pinch as a ctrl+wheel event, so pinch-to-zoom is the
+     same code path and needs no separate gesture. passive:false so the
+     zoom path can still stop the page from walking. */
   svg.addEventListener('wheel',e=>{
     if(dim!=='3') return;
+    if(!(e.ctrlKey || e.metaKey)) return;      // plain wheel: let the page scroll
     e.preventDefault();
     const next = Math.min(6, Math.max(0.5, zoom * (e.deltaY < 0 ? 1.12 : 1/1.12)));
     /* Zoom toward the pointer: hold the world point under the cursor still.

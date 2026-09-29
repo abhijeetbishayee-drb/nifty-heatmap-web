@@ -170,6 +170,21 @@ def main():
     if len(bench_pairs) < 300:
         print("benchmark history missing/too short, aborting", file=sys.stderr)
         sys.exit(1)
+    # Yahoo serves the FORMING candle, so a build started before the close
+    # would carry a partial day as if it were a session - the same trap that
+    # made the live scan score a bar with ~1% of its normal volume. The
+    # scheduled run is post-close and never sees it, but --force and any
+    # early dispatch do, so drop it here rather than trusting the caller.
+    if bench_pairs:
+        last_ist = datetime.fromtimestamp(bench_pairs[-1][0], IST)
+        now_ist = datetime.now(IST)
+        todays_close = now_ist.replace(hour=POST_CLOSE_HOUR, minute=0,
+                                       second=0, microsecond=0)
+        if last_ist.date() == now_ist.date() and now_ist < todays_close:
+            print(f"  dropping the forming {last_ist.date()} bar "
+                  f"(session still open at {now_ist:%H:%M} IST)")
+            bench_pairs = bench_pairs[:-1]
+
     dates = [t for t, _ in bench_pairs]
     bench_vals = [c for _, c in bench_pairs]
 
