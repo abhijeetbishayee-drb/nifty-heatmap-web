@@ -552,10 +552,20 @@ function render3d(){
     const r=(R_MIN+(R_MAX-R_MIN)*t)*(0.78+0.22*p.s)*(show?1:0.62)*Math.sqrt(zoom);
     const op=OP_MAX-(OP_MAX-OP_MIN)*t;
     let g='';
-    // trails are the clutter, so they appear only for the industry in focus
+    /* Trails are the clutter, so they appear only for the group in focus -
+       and inside that group the one you actually CLICKED is the loud one.
+       A group trail at a uniform weight answers "where has this lot been"
+       but not "which of these did I pick", which is the question a click
+       asks. The pick gets full weight plus a dot per period, so its
+       direction and its pace are both readable; the peers stay faint
+       enough to be context. */
     if(onStage && focusKey && s.tail.length>1){
-      const path=s.tail.map(([rr,mm])=>xy(pt(rr,mm))).join(' ');
-      g+=`<polyline class="trail t3 ${cls}${far?' far':''}" points="${path}"/>`;
+      const pts=s.tail.map(([rr,mm])=>pt(rr,mm));
+      const path=pts.map(xy).join(' ');
+      g+=`<polyline class="trail t3 ${cls}${isPick?' pick':''}${far?' far':''}" points="${path}"/>`;
+      if(isPick) pts.slice(0,-1).forEach(q0=>{
+        g+=`<circle class="dot-s t3 ${cls}${far?' far':''}" cx="${q0.x.toFixed(1)}" cy="${q0.y.toFixed(1)}" r="2.1"/>`;
+      });
     }
     g+=`<circle class="sph ${cls}${s.cashOnly?' cash':''}${far?' far':''}${onStage?'':' muted'}${isPick?' picked':''}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}"`+
        ` r="${r.toFixed(1)}" fill="url(#sph-${cls})" fill-opacity="${op.toFixed(2)}"`+

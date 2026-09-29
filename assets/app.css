@@ -491,7 +491,8 @@
    rotating the globe. */
 #chart.d3{ cursor:grab; touch-action:none; user-select:none; -webkit-user-select:none; }
 #chart.d3 text{ pointer-events:none; }
-#chart.d3 .globe, #chart.d3 .ind-thread, #chart.d3 .trail, #chart.d3 .stem{ pointer-events:none; }
+#chart.d3 .globe, #chart.d3 .ind-thread, #chart.d3 .trail, #chart.d3 .stem,
+#chart.d3 .dot-s{ pointer-events:none; }
 #chart.d3:active{ cursor:grabbing; }
 #chart .box{ stroke:var(--border); stroke-width:1; opacity:0.55; fill:none; }
 #chart .cross.zax{ stroke-dasharray:4 3; opacity:0.55; }
@@ -534,7 +535,14 @@
 #chart .ind-thread{ fill:none; stroke-width:2.4; opacity:0.85; stroke-linejoin:round; stroke-linecap:round; }
 .ind-key{ display:inline-flex; align-items:center; gap:6px; }
 .ind-key .sw{ width:16px; height:3px; border-radius:2px; }
-#chart.d3 .trail.t3{ opacity:0.12; }
+#chart.d3 .trail.t3{ opacity:0.30; }
+/* the clicked one, not just its group - full weight, and a dot per period
+   so the pace of the rotation reads as well as its direction */
+#chart .trail.t3.pick{ stroke-width:2.4; }
+#chart.d3 .trail.t3.pick{ opacity:0.95; }
+#chart.d3 .trail.t3.pick.far{ opacity:0.30; }
+#chart.d3 .dot-s.t3{ opacity:0.85; }
+#chart.d3 .dot-s.t3.far{ opacity:0.25; }
 
 /* The two great circles that mean something - equator = RS-Momentum 100,
    prime meridian = RS-Ratio 100 - are drawn harder than the guide lines,
