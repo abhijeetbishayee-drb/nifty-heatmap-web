@@ -590,6 +590,7 @@ function render3d(){
   svg.querySelectorAll('.sph').forEach(el=>{
     el.addEventListener('click', e=>{
       e.stopPropagation();
+      if(window.__rrgDragged && window.__rrgDragged()) return;   // that was a rotate
       const s0=series[+el.dataset.i];
       if(focusName===s0.name){ focusKey=null; focusName=null; }
       else { focusKey=s0[focusField()]||null; focusName=s0.name; }
@@ -630,9 +631,23 @@ function render3d(){
   };
   const clampPan=()=>{ panX=Math.max(-900,Math.min(900,panX));
                        panY=Math.max(-560,Math.min(560,panY)); };
-  const start=(x,y,mode)=>{ drag={x,y,yaw,pitch,panX,panY,mode}; hideTip(); };
+  /* A rotate re-renders, which replaces svg.innerHTML - and a click only
+     fires when pointerdown and pointerup land on the SAME element. So a
+     single pixel of hand jitter between press and release destroyed the
+     circle mid-click and the click event never happened: bubbles looked
+     unclickable with a real mouse, while synthetic events (which never
+     move) worked fine. Nothing moves until the pointer has travelled
+     past SLOP, and a gesture that did move suppresses the click it would
+     otherwise end with. */
+  const SLOP=4;
+  let suppressClick=false;
+  const start=(x,y,mode)=>{ drag={x,y,yaw,pitch,panX,panY,mode,moved:false}; suppressClick=false; hideTip(); };
   const move=(x,y)=>{
     if(!drag) return;
+    if(!drag.moved){
+      if(Math.hypot(x-drag.x, y-drag.y) < SLOP) return;
+      drag.moved=true; suppressClick=true;
+    }
     if(drag.mode==='pan'){
       const g=scaleOf(); if(!g) return;
       panX=drag.panX+(x-drag.x)/g.sc; panY=drag.panY+(y-drag.y)/g.sc;
@@ -648,15 +663,27 @@ function render3d(){
     render3d();
   };
   const end=()=>{ drag=null; };
+  window.__rrgDragged = () => suppressClick;
+  /* The drag is tracked on WINDOW, not by capturing the pointer on the svg.
+     setPointerCapture retargets every later event - including the click -
+     to the capture element, so pointerdown landed on a bubble but the click
+     arrived at <svg>, and the per-bubble handler never ran. That is why
+     clicking a bubble did nothing with a real mouse: measured, pointerdown
+     target polygon.quad-face / click target svg.d3. Window listeners keep
+     a drag alive outside the svg without touching click targeting. */
+  const onMove=e=>move(e.clientX,e.clientY);
+  const onUp=()=>{ end();
+    window.removeEventListener('pointermove',onMove);
+    window.removeEventListener('pointerup',onUp);
+    window.removeEventListener('pointercancel',onUp); };
   svg.addEventListener('pointerdown',e=>{ if(dim!=='3') return;
     const pan = e.shiftKey || e.button===1 || e.button===2;
     if(pan) e.preventDefault();
-    svg.setPointerCapture(e.pointerId);
-    start(e.clientX,e.clientY, pan?'pan':'rotate'); });
+    start(e.clientX,e.clientY, pan?'pan':'rotate');
+    window.addEventListener('pointermove',onMove);
+    window.addEventListener('pointerup',onUp);
+    window.addEventListener('pointercancel',onUp); });
   svg.addEventListener('contextmenu',e=>{ if(dim==='3') e.preventDefault(); });
-  svg.addEventListener('pointermove',e=>{ if(dim==='3') move(e.clientX,e.clientY); });
-  svg.addEventListener('pointerup',end);
-  svg.addEventListener('pointercancel',end);
   /* Scroll zooms. passive:false because the page must NOT scroll while the
      pointer is over the globe - otherwise a zoom gesture walks the page. */
   svg.addEventListener('wheel',e=>{

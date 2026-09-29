@@ -492,7 +492,10 @@
 #chart.d3{ cursor:grab; touch-action:none; user-select:none; -webkit-user-select:none; }
 #chart.d3 text{ pointer-events:none; }
 #chart.d3 .globe, #chart.d3 .ind-thread, #chart.d3 .trail, #chart.d3 .stem,
-#chart.d3 .dot-s{ pointer-events:none; }
+#chart.d3 .dot-s, #chart.d3 .quad-face, #chart.d3 .globe-body{ pointer-events:none; }
+/* ^ the quadrant faces and the dome body are painted OVER the bubbles, so
+   without this they swallow every click: measured, a click on a bubble's
+   own centre had target polygon.quad-face. Only .sph is clickable. */
 #chart.d3:active{ cursor:grabbing; }
 #chart .box{ stroke:var(--border); stroke-width:1; opacity:0.55; fill:none; }
 #chart .cross.zax{ stroke-dasharray:4 3; opacity:0.55; }
