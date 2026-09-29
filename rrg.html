@@ -60,7 +60,7 @@
       <span class="lbl" style="margin-left:10px;">Drag to rotate</span>
       <button type="button" id="resetView">Reset view</button>
       <button type="button" id="faceOn">Face on</button>
-      <span class="lbl">· scroll to zoom</span>
+      <span class="lbl">· scroll to zoom at the pointer · shift-drag to pan · double-click to clear</span>
       <span class="lbl" id="volHint"></span>
     </div>
   </div>
@@ -286,6 +286,14 @@ const INDUSTRY_COLOURS = {
   'Healthcare & Technology': '#3fb08a',
 };
 let zoom = 1;               // scroll wheel; clamped in the handler
+/* Camera pan, in screen units. Zoom alone could not reach the corners:
+   the globe was always re-centred in the viewport, so magnifying pushed
+   the quadrant corners off-screen and the only drag gesture rotated the
+   globe away instead of moving the camera. Two things fix that - the
+   wheel now zooms toward the POINTER (put the cursor on what you want
+   and it comes to you), and shift/right-drag moves the camera. */
+let panX = 0, panY = 0;
+let VIEW = null;            // last projection, so the wheel can zoom at a point
 /* Click-to-isolate. At rest the globe shows position only - 24 sectors, or
    229 stocks, each trailing 12 periods was the clutter.
 
@@ -402,7 +410,9 @@ function render3d(){
   const by0=Math.min(...probe.map(p=>p.y)), by1=Math.max(...probe.map(p=>p.y));
   const M=64;
   const k=Math.min((W-2*M)/Math.max(bx1-bx0,1e-6), (H-2*M)/Math.max(by1-by0,1e-6))*zoom;
-  const ox=W/2-k*(bx0+bx1)/2, oy=H/2-k*(by0+by1)/2;
+  const bcx=(bx0+bx1)/2, bcy=(by0+by1)/2;
+  const ox=W/2-k*bcx+panX, oy=H/2-k*bcy+panY;
+  VIEW={k,ox,oy,bcx,bcy,W,H};
   const P=(wx,wy,wz)=>{ const p=rot(wx,wy,wz); return {x:ox+k*p.x, y:oy+k*p.y, z:p.z, s:p.s}; };
   const pt=(rs,mm)=>P(...wOf(rs,mm));
 
@@ -560,8 +570,11 @@ function render3d(){
   });
 
   svg.innerHTML = back + body + front;
-  svg.addEventListener('click', e=>{
-    if(e.target.classList && e.target.classList.contains('sph')) return;
+  /* Clearing is a DOUBLE-click, anywhere. A single click on empty space used
+     to clear, which meant an isolation could not survive an ordinary click or
+     the end of a drag - so the group you had just picked kept vanishing. */
+  svg.addEventListener('dblclick', e=>{
+    e.preventDefault();
     if(focusKey){ focusKey=null; focusName=null; hideTip(); render3d(); }
   });
   svg.querySelectorAll('.sph').forEach(el=>{
@@ -582,7 +595,7 @@ function render3d(){
 
   document.getElementById('sizeLegend').innerHTML =
     (focusKey
-      ? `<span class="quad-key"><strong>${focusKey}</strong>&nbsp;isolated (${series.filter(sx=>sx[focusField()]===focusKey).length} of ${series.length}) — click it again, or any empty space, to clear</span>`
+      ? `<span class="quad-key"><strong>${focusKey}</strong>&nbsp;isolated (${series.filter(sx=>sx[focusField()]===focusKey).length} of ${series.length}) — double-click anywhere to clear</span>`
       : `<span class="quad-key">click a bubble to isolate its ${view==='stocks'?'sector, and link it':'industry'}</span>`)+
     `<span class="quad-key"><strong>centre</strong>&nbsp;= on the crosshair, quadrant barely means anything</span>`+
     `<span class="quad-key"><strong>shell</strong>&nbsp;= decisively in its quadrant</span>`+
@@ -594,9 +607,27 @@ function render3d(){
 (function(){
   const svg=document.getElementById('chart');
   let drag=null;
-  const start=(x,y)=>{ drag={x,y,yaw,pitch}; hideTip(); };
+  /* Pointer position in viewBox units. The svg uses preserveAspectRatio
+     xMidYMid meet, so the drawing is letterboxed inside the element and a
+     raw client offset is not a viewBox coordinate. */
+  const scaleOf=()=>{ const r=svg.getBoundingClientRect();
+    const sc=Math.min(r.width/1000, r.height/620);
+    return (sc>0 && isFinite(sc)) ? {r,sc} : null; };   // 0 while laid out/hidden
+  const toView=(cx,cy)=>{
+    const g=scaleOf(); if(!g) return null;
+    const {r,sc}=g;
+    return { x:(cx-r.left-(r.width-1000*sc)/2)/sc, y:(cy-r.top-(r.height-620*sc)/2)/sc };
+  };
+  const clampPan=()=>{ panX=Math.max(-900,Math.min(900,panX));
+                       panY=Math.max(-560,Math.min(560,panY)); };
+  const start=(x,y,mode)=>{ drag={x,y,yaw,pitch,panX,panY,mode}; hideTip(); };
   const move=(x,y)=>{
     if(!drag) return;
+    if(drag.mode==='pan'){
+      const g=scaleOf(); if(!g) return;
+      panX=drag.panX+(x-drag.x)/g.sc; panY=drag.panY+(y-drag.y)/g.sc;
+      clampPan(); render3d(); return;
+    }
     /* Both axes follow the mouse, as if the globe's front face were being
        dragged. Pitch used to be negated, so horizontal tracked the pointer
        while vertical fought it - verified against the projection: raising
@@ -608,7 +639,11 @@ function render3d(){
   };
   const end=()=>{ drag=null; };
   svg.addEventListener('pointerdown',e=>{ if(dim!=='3') return;
-    svg.setPointerCapture(e.pointerId); start(e.clientX,e.clientY); });
+    const pan = e.shiftKey || e.button===1 || e.button===2;
+    if(pan) e.preventDefault();
+    svg.setPointerCapture(e.pointerId);
+    start(e.clientX,e.clientY, pan?'pan':'rotate'); });
+  svg.addEventListener('contextmenu',e=>{ if(dim==='3') e.preventDefault(); });
   svg.addEventListener('pointermove',e=>{ if(dim==='3') move(e.clientX,e.clientY); });
   svg.addEventListener('pointerup',end);
   svg.addEventListener('pointercancel',end);
@@ -617,11 +652,25 @@ function render3d(){
   svg.addEventListener('wheel',e=>{
     if(dim!=='3') return;
     e.preventDefault();
-    zoom = Math.min(4, Math.max(0.5, zoom * (e.deltaY < 0 ? 1.12 : 1/1.12)));
+    const next = Math.min(6, Math.max(0.5, zoom * (e.deltaY < 0 ? 1.12 : 1/1.12)));
+    /* Zoom toward the pointer: hold the world point under the cursor still.
+       Without this the corners are unreachable, because every zoom step
+       re-centres the globe and walks them further off-screen. */
+    const c = (VIEW && next!==zoom) ? toView(e.clientX,e.clientY) : null;
+    if(c){
+      const u=(c.x-VIEW.ox)/VIEW.k, v=(c.y-VIEW.oy)/VIEW.k;
+      const k2=VIEW.k*(next/zoom);
+      const nx = c.x - k2*u - (VIEW.W/2 - k2*VIEW.bcx);
+      const ny = c.y - k2*v - (VIEW.H/2 - k2*VIEW.bcy);
+      if(isFinite(nx) && isFinite(ny)){ panX=nx; panY=ny; }   // never NaN the view
+    }
+    zoom = next;
+    if(zoom<=1){ panX=0; panY=0; }   // zooming back out re-centres
+    clampPan();
     hideTip(); render3d();
   }, {passive:false});
   document.getElementById('resetView').addEventListener('click',()=>{
-    yaw=HOME.yaw; pitch=HOME.pitch; zoom=1; render3d(); });
+    yaw=HOME.yaw; pitch=HOME.pitch; zoom=1; panX=0; panY=0; render3d(); });
   document.getElementById('faceOn').addEventListener('click',()=>{
     yaw=0; pitch=0; render3d(); });
 })();
