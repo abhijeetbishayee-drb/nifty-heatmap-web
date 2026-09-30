@@ -115,6 +115,7 @@
     amount of history, so anything without enough history is excluded rather than rescaled.
     <span id="exclNote"></span>
     <br><br>
+    <span id="ctxNote" hidden></span>
     <strong>The 3D view puts a third measure on the depth axis.</strong> RRG has no
     natural third axis — RS-Momentum is already the derivative of RS-Ratio, so the two
     are a matched pair and anything on Z is a different measure bolted on. Two are offered,
@@ -597,6 +598,15 @@ function render3d(){
       if(focusName===s0.name){ focusKey=null; focusName=null; }
       else { focusKey=s0[focusField()]||null; focusName=s0.name; }
       hideTip(); render3d();
+      if(window.__rrgFrame) window.__rrgFrame();   // only if the tail is unreadably small
+    });
+    /* Double-click a SECTOR bubble to open its constituents. The sector view
+       answers "which sectors are turning"; the obvious next question is
+       "which names inside this one", and that was three controls away. */
+    el.addEventListener('dblclick', e=>{
+      e.stopPropagation(); e.preventDefault();
+      if(view!=='sectors') return;
+      drillInto(series[+el.dataset.i].name);
     });
     el.addEventListener('mouseenter',e=>showTip(series[+el.dataset.i], e));
     el.addEventListener('mouseleave',hideTip);
@@ -753,6 +763,46 @@ function render3d(){
     yaw=HOME.yaw; pitch=HOME.pitch; zoom=1; panX=0; panY=0; render3d(); });
   document.getElementById('faceOn').addEventListener('click',()=>{
     yaw=0; pitch=0; render3d(); });
+
+  /* A picked stock's tail was rendering all along - at about 36x85px, which
+     is a scribble, not a tail. Sectors are 24 smooth baskets so their arcs
+     are long; stocks put 229 names on the same globe, so one name's twelve
+     periods occupy a few dozen pixels and read as nothing at all.
+
+     So: after a pick, if its tail is too small to follow, frame it. Only
+     then - a sector's tail is already legible and is left exactly where it
+     was. Reset view, or clearing the pick, undoes it. */
+  /* Legibility is the MEDIAN STEP between consecutive periods, not the
+     bounding box. A tail that doubles back on itself can span a wide box
+     while every hop is a few pixels - which is exactly the stocks case.
+     Measured on the same day: SUNPHARMA 11.8px median step in a 92px box,
+     Consumer Services 33.7px in a 210px box. The box barely separates
+     them; the step separates them cleanly. */
+  const READABLE=20, WANT=28, MAX_STEP=4;
+  function frameOnPick(){
+    const p=document.querySelector('#chart polyline.trail.t3.pick');
+    if(!p || !VIEW) return;
+    let bb, pts;
+    try{
+      bb=p.getBBox();
+      pts=p.getAttribute('points').trim().split(/\s+/).map(t=>t.split(',').map(Number));
+    }catch(e){ return; }
+    if(pts.length<2) return;
+    const d=[];
+    for(let i=1;i<pts.length;i++) d.push(Math.hypot(pts[i][0]-pts[i-1][0], pts[i][1]-pts[i-1][1]));
+    d.sort((a,b)=>a-b);
+    const med=d[Math.floor(d.length/2)];
+    if(!isFinite(med) || med<=0 || med>=READABLE) return;
+    const next=Math.min(6, zoom*Math.min(MAX_STEP, WANT/med));
+    if(next <= zoom*1.05) return;
+    const k2=VIEW.k*(next/zoom);
+    const u=(bb.x+bb.width/2-VIEW.ox)/VIEW.k, v=(bb.y+bb.height/2-VIEW.oy)/VIEW.k;
+    const nx=VIEW.W/2 - k2*u - (VIEW.W/2 - k2*VIEW.bcx);
+    const ny=VIEW.H/2 - k2*v - (VIEW.H/2 - k2*VIEW.bcy);
+    if(!isFinite(nx) || !isFinite(ny)) return;
+    panX=nx; panY=ny; zoom=next; clampPan(); render3d();
+  }
+  window.__rrgFrame = frameOnPick;
 })();
 
 function showTip(s,e){
@@ -840,6 +890,21 @@ function wire(attr, fn){
     });
   });
 }
+/* Sectors -> that sector's stocks, in one gesture. Mirrors what the View
+   and Sector controls would do by hand, including their active states, so
+   the chrome never disagrees with what is plotted. */
+function drillInto(sectorName){
+  const opt=[...document.getElementById('sectorPick').options]
+    .find(o=>o.value===sectorName);
+  if(!opt) return;                       // a sector with no stocks of its own
+  view='stocks'; sectorPick=sectorName;
+  document.getElementById('sectorPick').value=sectorName;
+  document.querySelectorAll('.controls button[data-view]').forEach(b=>
+    b.classList.toggle('active', b.getAttribute('data-view')==='stocks'));
+  focusKey=null; focusName=null;
+  syncChrome(); render();
+}
+
 wire('data-view', v=>{view=v;});
 wire('data-period', p=>{period=p;});
 wire('data-tail', t=>{tail=+t;});
@@ -864,6 +929,74 @@ async function load(){
 }
 load();
 setInterval(()=>{ if(DATA) stamp(); }, 5*60*1000);   // amber can arrive while the tab sits open
+
+/* ── positioning from the other two boards ──────────────────────────────
+   The RRG says where a name sits in the rotation; it says nothing about
+   whether the market is carrying its position forward or how it is hedged.
+   Rollover and PCR do, and both already exist as their own boards on this
+   same github.io origin - so these are plain relative fetches, no CORS and
+   no copy of the data kept here.
+
+   Deliberately read-only and deliberately silent on failure: this is
+   context in a footnote, and a board that cannot draw its own chart
+   because a neighbouring project moved a file would be a bad trade. */
+const ROLL_URL='../fno-rollover/sheet_data.json';
+const PCR_URL='../nifty-pcr-tracker/pcr_data.json';
+const dayFmt=iso=>{ const d=new Date(iso.length<=10?iso+'T12:00:00+05:30':iso);
+  return isNaN(d) ? iso : d.toLocaleString('en-IN',
+    {timeZone:'Asia/Kolkata',day:'2-digit',month:'short'}); };
+
+async function loadContext(){
+  const grab=async u=>{ try{ const r=await fetch(u+'?t='+Date.now(),{cache:'no-store'});
+    return r.ok ? await r.json() : null; }catch(e){ return null; } };
+  const [roll, pcr] = await Promise.all([grab(ROLL_URL), grab(PCR_URL)]);
+  const bits=[];
+
+  if(roll && Array.isArray(roll.sectors) && roll.sectors.length){
+    // board-level rollover = constituent-weighted, so a 3-name sector does
+    // not count the same as a 20-name one
+    let num=0, den=0, hi=null, lo=null;
+    roll.sectors.forEach(x=>{
+      const a=parseFloat(x.avgRoll), n=parseFloat(x.count);
+      if(!isFinite(a) || !isFinite(n) || n<=0) return;
+      num+=a*n; den+=n;
+      if(!hi || a>hi.a) hi={n:x.sector, a};
+      if(!lo || a<lo.a) lo={n:x.sector, a};
+    });
+    if(den>0) bits.push(
+      `<strong>Rollover into the ${escHtml(dayFmt(roll.expiry))} expiry: `
+      + `${(num/den).toFixed(1)}%</strong> across ${escHtml(String(roll.count))} F&amp;O names, `
+      + `weighted by constituents — highest ${escHtml(hi.n)} ${hi.a.toFixed(1)}%, `
+      + `lowest ${escHtml(lo.n)} ${lo.a.toFixed(1)}%.`);
+  }
+
+  if(pcr && pcr.nifty){
+    const v=x=>(x==null||!isFinite(x))?null:(+x).toFixed(2);
+    const nm=v(pcr.nifty.monthly&&pcr.nifty.monthly.pcr),
+          nw=v(pcr.nifty.weekly&&pcr.nifty.weekly.pcr),
+          bm=v(pcr.bankNifty&&pcr.bankNifty.monthly&&pcr.bankNifty.monthly.pcr);
+    const p=[];
+    if(nm) p.push(`NIFTY ${nm} monthly`);
+    if(nw) p.push(`${nm?'':'NIFTY '}${nw} weekly`);
+    if(bm) p.push(`BANKNIFTY ${bm}`);
+    if(p.length) bits.push(`<strong>Put-call ratio:</strong> ${p.join(' · ')}`
+      + (pcr.generatedAt ? `, read ${escHtml(dayFmt(pcr.generatedAt))}` : '') + '.');
+  }
+
+  const el=document.getElementById('ctxNote');
+  if(!bits.length){ el.hidden=true; return; }
+  el.innerHTML = bits.join(' ')
+    + ` Neither number comes from this board — they are read live from the`
+    + ` <a href="${ROLL_URL.replace('sheet_data.json','')}">F&amp;O rollover sheet</a> and the`
+    + ` <a href="${PCR_URL.replace('pcr_data.json','')}">PCR tracker</a>, which keep their own`
+    + ` universes and their own schedules. Rollover is a monthly-expiry measure and PCR a`
+    + ` positioning one, so neither moves with the daily rotation above; they are here to say`
+    + ` what the market was carrying while that rotation happened.<br><br>`;
+  el.hidden=false;
+}
+function escHtml(t){ return String(t).replace(/[&<>"]/g,
+  c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+loadContext();
 
 /* ── how fresh is this board? ───────────────────────────────────────────
    generatedAt says when the JOB ran; lastBar says which session it ran ON,
