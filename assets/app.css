@@ -252,6 +252,18 @@
 .nav a:hover{ color:var(--text); }
 .nav a.active{ background:var(--panel); border-color:var(--border); color:var(--text); }
 .nav a:focus-visible{ outline:2px solid var(--info); outline-offset:2px; }
+/* The first three links are pages of THIS board; the rest are separate
+   projects on the same origin. They are marked apart rather than merged in,
+   because a nav that mixes "switch view" with "leave for another app" makes
+   the back button the only way to tell what just happened. Never .active -
+   these pages cannot be the current one. */
+.nav .nav-sep{ width:1px; align-self:stretch; margin:2px 6px;
+               background:var(--border); opacity:0.8; }
+.nav a.away{ color:var(--text-dim); opacity:0.78; }
+.nav a.away::after{ content:"\2197"; font-size:10px; margin-left:4px;
+                    vertical-align:1px; opacity:0.7; }
+.nav a.away:hover{ color:var(--text); opacity:1; }
+@media (max-width:640px){ .nav .nav-sep{ display:none; } }
 
 /* ── Sector summary list (one sector per row) ───────── */
 .sector-strip{ display:flex; flex-direction:column; gap:3px; margin-bottom:22px; }
