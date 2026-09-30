@@ -60,7 +60,9 @@
       <span class="lbl" style="margin-left:10px;">Drag to rotate</span>
       <button type="button" id="resetView">Reset view</button>
       <button type="button" id="faceOn">Face on</button>
-      <span class="lbl">· pinch or ⌘-scroll to zoom at the pointer · shift-drag to pan · double-click to clear</span>
+      <button type="button" id="zoomOut" aria-label="Zoom out">&minus;</button>
+      <button type="button" id="zoomIn" aria-label="Zoom in">+</button>
+      <span class="lbl">· pinch, or ⌥-scroll, to zoom at the pointer · shift-drag to pan · double-click to clear</span>
       <span class="lbl" id="volHint"></span>
     </div>
   </div>
@@ -684,22 +686,31 @@ function render3d(){
     window.addEventListener('pointerup',onUp);
     window.addEventListener('pointercancel',onUp); });
   svg.addEventListener('contextmenu',e=>{ if(dim==='3') e.preventDefault(); });
-  /* ZOOM IS PINCH OR CMD/CTRL-WHEEL. A plain wheel scrolls the PAGE.
-     Taking the wheel outright meant the page could not be scrolled at all
-     while the cursor sat over the globe - and after clicking a bubble that
-     is exactly where the cursor is, so the page appeared frozen. Browsers
-     deliver a trackpad pinch as a ctrl+wheel event, so pinch-to-zoom is the
-     same code path and needs no separate gesture. passive:false so the
-     zoom path can still stop the page from walking. */
-  svg.addEventListener('wheel',e=>{
-    if(dim!=='3') return;
-    if(!(e.ctrlKey || e.metaKey)) return;      // plain wheel: let the page scroll
-    e.preventDefault();
-    const next = Math.min(6, Math.max(0.5, zoom * (e.deltaY < 0 ? 1.12 : 1/1.12)));
-    /* Zoom toward the pointer: hold the world point under the cursor still.
-       Without this the corners are unreachable, because every zoom step
-       re-centres the globe and walks them further off-screen. */
-    const c = (VIEW && next!==zoom) ? toView(e.clientX,e.clientY) : null;
+  /* ZOOMING, AND WHY IT TAKES FOUR PATHS.
+     A plain wheel must scroll the PAGE - taking the wheel outright left the
+     page frozen whenever the cursor sat over the globe, which after clicking
+     a bubble is exactly where it is. So zoom needs its own gesture, and no
+     single gesture survives every browser:
+
+       - Chrome/Firefox report a trackpad pinch as ctrl+wheel.
+       - SAFARI DOES NOT. It has its own gesturestart/gesturechange events
+         and never synthesises ctrl+wheel, so the ctrl+wheel path alone is
+         dead on Safari - which is what "pinch to zoom does nothing" was.
+       - CMD+scroll is Safari's own page zoom, so asking for it hands the
+         gesture to the browser instead. Dropped; Option/Alt is not claimed
+         by any of them and works with an ordinary mouse wheel.
+       - And the buttons below need no gesture at all, so there is always
+         one path that no OS or browser setting can intercept.
+
+     All four funnel into zoomAt(), so the zoom-toward-the-pointer maths
+     lives in one place. */
+  function zoomAt(factor, clientX, clientY){
+    const next = Math.min(6, Math.max(0.5, zoom * factor));
+    if(next === zoom) return;
+    /* Hold the world point under the pointer still. Without this the
+       corners are unreachable: every zoom step re-centres the globe and
+       walks them further off-screen. */
+    const c = (VIEW && clientX!=null) ? toView(clientX, clientY) : null;
     if(c){
       const u=(c.x-VIEW.ox)/VIEW.k, v=(c.y-VIEW.oy)/VIEW.k;
       const k2=VIEW.k*(next/zoom);
@@ -711,7 +722,33 @@ function render3d(){
     if(zoom<=1){ panX=0; panY=0; }   // zooming back out re-centres
     clampPan();
     hideTip(); render3d();
+  }
+  window.__rrgZoom = () => zoom;     // for verification
+
+  svg.addEventListener('wheel',e=>{
+    if(dim!=='3') return;
+    if(!(e.ctrlKey || e.altKey)) return;   // plain wheel: let the page scroll
+    e.preventDefault();
+    zoomAt(e.deltaY < 0 ? 1.12 : 1/1.12, e.clientX, e.clientY);
   }, {passive:false});
+
+  /* Safari's pinch. e.scale is cumulative from the gesture start, so it is
+     differenced against the last sample to get a per-event factor. */
+  let gScale=1;
+  svg.addEventListener('gesturestart', e=>{ if(dim!=='3') return;
+    e.preventDefault(); gScale=1; });
+  svg.addEventListener('gesturechange', e=>{ if(dim!=='3') return;
+    e.preventDefault();
+    const f = e.scale / (gScale || 1); gScale = e.scale;
+    if(isFinite(f) && f>0) zoomAt(f, e.clientX, e.clientY);
+  });
+  svg.addEventListener('gestureend', e=>{ if(dim==='3') e.preventDefault(); });
+
+  // the gesture-free path: zoom about the centre of the view
+  const btnZoom=f=>()=>{ const r=svg.getBoundingClientRect();
+    zoomAt(f, r.left+r.width/2, r.top+r.height/2); };
+  document.getElementById('zoomIn').addEventListener('click', btnZoom(1.35));
+  document.getElementById('zoomOut').addEventListener('click', btnZoom(1/1.35));
   document.getElementById('resetView').addEventListener('click',()=>{
     yaw=HOME.yaw; pitch=HOME.pitch; zoom=1; panX=0; panY=0; render3d(); });
   document.getElementById('faceOn').addEventListener('click',()=>{
