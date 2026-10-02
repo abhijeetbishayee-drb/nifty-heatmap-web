@@ -91,7 +91,7 @@ function tileHtml(r){
   const pctText = (r.ca && !r.ca.adjusted) ? 'NA' : fmtPct(r.pct);
   return `
     <a class="tile ${bucket(r.pct)}${r.cashOnly ? ' cash-only' : ''}${r.ca ? ' ex-ca' : ''}" href="${nseUrl(r.ticker)}" target="_blank" rel="noopener noreferrer" title="Day range: ${fmtPrice(r.dayLow)} – ${fmtPrice(r.dayHigh)}${r.cashOnly ? ' · cash only, no F&O' : ''}${caTitle(r)} · View on NSE">
-      <div class="name">${r.name}</div>
+      <div class="name">${r.name}${r.ca ? '<span class="adj-star" title="price history adjusted for a corporate action">*</span>' : ''}</div>
       <div class="figures">
         <div class="price">${fmtPrice(r.price)}</div>
         <div class="pct">${pctText}</div>

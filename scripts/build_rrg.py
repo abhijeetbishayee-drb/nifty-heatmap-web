@@ -228,6 +228,13 @@ def main():
         # board is really being asked. It is a real NSE session date, so it
         # stays right across holidays, when a calendar guess would not.
         "lastBar": datetime.fromtimestamp(dates[-1], IST).date().isoformat(),
+        # Names whose SERIES this build changed. `adj` on a record says the
+        # normalisation window still spans the event and clears itself; this
+        # says the repair happened at all, which is what a reader needs to know
+        # before comparing a point against a chart built from raw prices.
+        "repaired": {short_name(t): {"what": n["what"], "date": n["date"],
+                                     "kind": n["kind"]}
+                     for t, n in sorted(ca.items())},
         "benchmark": {"ticker": BENCHMARK, "label": BENCH_LABEL},
         "note": ("Approximation of JdK RS-Ratio/RS-Momentum, not the licensed "
                  "formula. Every symbol is z-scored over an identical window; "

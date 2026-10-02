@@ -514,6 +514,8 @@
    polyline.trail sat on TCS's, so those two could not be hovered at all.
    In 3D it was worse - the quadrant faces are painted OVER the bubbles,
    so a click on a bubble's centre had target polygon.quad-face. */
+/* the * that marks a NAME whose history was repaired - never a value */
+.adj-star{ color:var(--q-weak); font-weight:700; margin-left:2px; }
 #chart text{ pointer-events:none; }
 #chart .globe, #chart .ind-thread, #chart .trail, #chart .stem,
 #chart .dot-s, #chart .quad-face, #chart .globe-body,

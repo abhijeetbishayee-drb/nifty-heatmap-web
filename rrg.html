@@ -255,7 +255,7 @@ function render2d(){
     const X=px(last[0]).toFixed(1), Y=py(last[1]).toFixed(1);
     out+=`<circle class="dot ${cls}${s.cashOnly?' cash':''}" cx="${X}" cy="${Y}" r="${show?5:3.2}"`+
          ` data-i="${i}" tabindex="0" aria-label="${esc(s.name)} · RS ${last[0].toFixed(2)} · Mom ${last[1].toFixed(2)} · ${q}"></circle>`;
-    if(show) out+=`<text class="plabel" x="${+X+8}" y="${+Y+4}">${esc(s.name)}</text>`;
+    if(show) out+=`<text class="plabel" x="${+X+8}" y="${+Y+4}">${esc(s.name)}${adjMark(s.name)}</text>`;
   });
 
   svg.innerHTML=out;
@@ -582,7 +582,7 @@ function render3d(){
        `${s.industry?' · '+esc(s.industry):''}"></circle>`;
     // in focus mode only the chosen industry keeps its names
     if(!far && (focusKey ? onStage : show))
-      g+=`<text class="plabel halo${onStage?'':' muted'}" x="${(p.x+r+5).toFixed(1)}" y="${(p.y+4).toFixed(1)}">${esc(s.name)}</text>`;
+      g+=`<text class="plabel halo${onStage?'':' muted'}" x="${(p.x+r+5).toFixed(1)}" y="${(p.y+4).toFixed(1)}">${esc(s.name)}${adjMark(s.name)}</text>`;
     put(p.z, g);
   });
 
@@ -809,10 +809,25 @@ function render3d(){
   window.__rrgFrame = frameOnPick;
 })();
 
+/* A name whose SERIES this build repaired carries a *, the same mark the
+   44 EMA board uses. It goes on the NAME only - never on RS-Ratio, momentum
+   or any other reading, because what changed is the history every one of
+   those is computed from, not any single figure. */
+function adjStar(name){
+  const r = DATA && DATA.repaired && DATA.repaired[name];
+  if(!r) return '';
+  return `<span class="adj-star" title="${r.what} (${r.date}) — `
+       + (r.kind === 'economic'
+            ? 'history starts at the event; earlier bars belong to a larger company'
+            : 'earlier prices back-adjusted onto the post-event basis')
+       + `">*</span>`;
+}
+function adjMark(name){ return (DATA && DATA.repaired && DATA.repaired[name]) ? '*' : ''; }
+
 function showTip(s,e){
   const t=document.getElementById('tip'), last=s.tail[s.tail.length-1];
   const q=quadrant(last[0],last[1]);
-  t.innerHTML=`<strong>${s.name}</strong> <span class="q ${quadCls(q)}">${q}</span><br>`+
+  t.innerHTML=`<strong>${s.name}${adjStar(s.name)}</strong> <span class="q ${quadCls(q)}">${q}</span><br>`+
     `RS-Ratio ${last[0].toFixed(2)} · RS-Mom ${last[1].toFixed(2)}`+
     `<br>conviction ${Math.hypot(last[0]-100,last[1]-100).toFixed(2)}`+
     (s.vol&&s.vol.length?`<br>volatility ${s.vol[s.vol.length-1].toFixed(1)}% annualised`:'')+
