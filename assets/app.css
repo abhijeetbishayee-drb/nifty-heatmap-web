@@ -264,6 +264,17 @@
                     vertical-align:1px; opacity:0.7; }
 .nav a.away:hover{ color:var(--text); opacity:1; }
 @media (max-width:640px){ .nav .nav-sep{ display:none; } }
+/* Beta marker - the RRG board is still being validated, so it is labelled
+   wherever it is linked (here, the page heading, and the sibling boards'
+   navs) rather than only on its own page. */
+.beta{
+  display:inline-block; margin-left:5px; padding:0 4px; border-radius:3px;
+  font-family:"IBM Plex Mono",monospace; font-size:9px; font-weight:600;
+  letter-spacing:0.06em; line-height:14px; vertical-align:1px;
+  color:var(--accent); border:1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  text-transform:uppercase;
+}
+.brand h1 .beta{ font-size:10px; vertical-align:4px; }
 
 /* ── Sector summary list (one sector per row) ───────── */
 .sector-strip{ display:flex; flex-direction:column; gap:3px; margin-bottom:22px; }
