@@ -1,3 +1,7 @@
+/* Shared by index.html, sectors.html and rrg.html. Those pages load this file
+   (and app.js) as ?v=YYYYMMDD - bump that in all three when either asset
+   changes, or browsers and the Android app's WebView keep the old copy for up
+   to GitHub Pages' 10-minute cache lifetime while the new HTML has arrived. */
 :root{
     --bg:#f4f3ef;
     --panel:#ffffff;
