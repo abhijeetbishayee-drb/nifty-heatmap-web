@@ -243,6 +243,10 @@
   .mover-row .day-range{ margin-top:0; }
 
   .footnote{ margin-top:20px; font-size:11px; color:var(--text-dim); line-height:1.5; }
+  /* Same sentence on every board (and the sibling boards inline), so the app
+     carries it whichever board is open. */
+  .disclaimer{ margin-top:14px; padding-top:10px; border-top:1px solid var(--border);
+               font-size:11px; color:var(--text-dim); line-height:1.5; }
   .footnote code{ font-family:"IBM Plex Mono",monospace; background:var(--panel-2); padding:1px 5px; border-radius:3px; }
 
 /* ── Page nav ───────────────────────────────────────── */
