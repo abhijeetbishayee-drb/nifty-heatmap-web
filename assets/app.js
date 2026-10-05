@@ -90,8 +90,9 @@ function caTitle(r){
 function tileHtml(r){
   const pctText = (r.ca && !r.ca.adjusted) ? 'NA' : fmtPct(r.pct);
   return `
-    <a class="tile ${bucket(r.pct)}${r.cashOnly ? ' cash-only' : ''}${r.ca ? ' ex-ca' : ''}" href="${nseUrl(r.ticker)}" target="_blank" rel="noopener noreferrer" title="Day range: ${fmtPrice(r.dayLow)} – ${fmtPrice(r.dayHigh)}${r.cashOnly ? ' · cash only, no F&O' : ''}${caTitle(r)} · View on NSE">
+    <a class="tile ${bucket(r.pct)}${r.cashOnly ? ' cash-only' : ''}${r.ca ? ' ex-ca' : ''}" href="${nseUrl(r.ticker)}" target="_blank" rel="noopener noreferrer" title="${r.full ? r.full + ' · ' : ''}Day range: ${fmtPrice(r.dayLow)} – ${fmtPrice(r.dayHigh)}${r.cashOnly ? ' · cash only, no F&O' : ''}${caTitle(r)} · View on NSE">
       <div class="name">${r.name}${r.ca ? '<span class="adj-star" title="price history adjusted for a corporate action">*</span>' : ''}</div>
+      ${r.full && r.full !== r.name ? `<div class="full">${r.full}</div>` : ''}
       <div class="figures">
         <div class="price">${fmtPrice(r.price)}</div>
         <div class="pct">${pctText}</div>
@@ -140,7 +141,7 @@ function moversList(items, field){
   return items.map(r => `
     <div class="mover-row">
       <div class="mover-top">
-        <span class="m-name">${r.name}</span>
+        <span class="m-name">${r.name}${r.full && r.full !== r.name ? `<span class="m-full">${r.full}</span>` : ''}</span>
         <span class="m-price">${fmtPrice(r.price)}</span>
         <span class="m-pct">${fmtPct(r[field])}</span>
       </div>
