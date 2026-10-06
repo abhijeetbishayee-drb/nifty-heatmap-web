@@ -6,7 +6,7 @@
 <title>Relative Rotation Graph (Beta)</title>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="assets/app.css?v=20261006a">
+<link rel="stylesheet" href="assets/app.css?v=20261006b">
 </head>
 <body>
 <div class="wrap">
@@ -44,7 +44,8 @@
         <button type="button" data-basket="ex" id="bEx">Ex-outliers</button></span>
       <span class="ctl-group"><span class="lbl">Plot</span>
         <button type="button" data-dim="2" class="active">2D</button>
-        <button type="button" data-dim="3">3D &middot; vol</button></span>
+        <button type="button" data-dim="3">3D &middot; vol</button>
+        <button type="button" data-dim="im">Immersive</button></span>
     </div>
     <div class="status" id="statusTag"><span class="live-dot"></span><span id="statusText">Loading…</span></div>
   </div>
@@ -308,8 +309,9 @@ function noteHidden(hidden, total){
 function render(){
   hideTip();
   layoutChart();
-  document.getElementById('chart').classList.toggle('d3', dim==='3');
-  return dim==='3' ? render3d() : render2d();
+  document.getElementById('chart').classList.toggle('d3', dim==='3' || dim==='im');
+  document.getElementById('chart').classList.toggle('dim-im', dim==='im');
+  return dim==='im' ? renderImmersive() : dim==='3' ? render3d() : render2d();
 }
 
 function render2d(){
@@ -758,6 +760,22 @@ function render3d(){
     e.preventDefault();
     if(focusKey){ focusKey=null; focusName=null; hideTip(); render3d(); }
   });
+  bindPoints(svg, series, render3d);
+  document.getElementById('indLegend').hidden = true;
+  document.getElementById('sizeLegend').innerHTML =
+    (focusKey
+      ? `<span class="quad-key"><strong>${focusKey}</strong>&nbsp;isolated (${series.filter(sx=>sx[focusField()]===focusKey).length} of ${series.length}) — double-click anywhere to clear</span>`
+      : `<span class="quad-key">click a bubble to isolate its ${view==='stocks'?'sector, and link it':'industry'}</span>`)+
+    `<span class="quad-key"><strong>centre</strong>&nbsp;= on the crosshair, quadrant barely means anything</span>`+
+    `<span class="quad-key"><strong>shell</strong>&nbsp;= decisively in its quadrant</span>`+
+    `<span class="quad-key"><span class="sz sz-lo"></span>low ${Z.size} — small, opaque</span>`+
+    `<span class="quad-key"><span class="sz sz-hi"></span>high ${Z.size} — large, translucent</span>`;
+}
+
+/* One click path for both 3D modes. The immersive view reuses the .sph class
+   and data-i for its HIT targets precisely so this never forks: a second copy
+   is how a click path ends up dead in one mode and nobody notices. */
+function bindPoints(svg, series, rerender){
   svg.querySelectorAll('.sph').forEach(el=>{
     el.addEventListener('click', e=>{
       e.stopPropagation();
@@ -765,7 +783,7 @@ function render3d(){
       const s0=series[+el.dataset.i];
       if(focusName===s0.name){ focusKey=null; focusName=null; }
       else { focusKey=s0[focusField()]||null; focusName=s0.name; }
-      hideTip(); render3d();
+      hideTip(); rerender();
       if(window.__rrgFrame) window.__rrgFrame();   // only if the tail is unreadably small
     });
     /* Double-click a SECTOR bubble to open its constituents. The sector view
@@ -781,18 +799,197 @@ function render3d(){
     el.addEventListener('focus',e=>showTip(series[+el.dataset.i], e));
     el.addEventListener('blur',hideTip);
   });
-
-  document.getElementById('indLegend').hidden = true;
-
-  document.getElementById('sizeLegend').innerHTML =
-    (focusKey
-      ? `<span class="quad-key"><strong>${focusKey}</strong>&nbsp;isolated (${series.filter(sx=>sx[focusField()]===focusKey).length} of ${series.length}) — double-click anywhere to clear</span>`
-      : `<span class="quad-key">click a bubble to isolate its ${view==='stocks'?'sector, and link it':'industry'}</span>`)+
-    `<span class="quad-key"><strong>centre</strong>&nbsp;= on the crosshair, quadrant barely means anything</span>`+
-    `<span class="quad-key"><strong>shell</strong>&nbsp;= decisively in its quadrant</span>`+
-    `<span class="quad-key"><span class="sz sz-lo"></span>low ${Z.size} — small, opaque</span>`+
-    `<span class="quad-key"><span class="sz sz-hi"></span>high ${Z.size} — large, translucent</span>`;
 }
+
+
+/* ── Immersive view ───────────────────────────────────────────────────
+   The analytic 3D view looks AT the dome from outside. This one lets the
+   camera fly INTO it, which is the thing the reference asks for: you stand
+   inside the cloud and the points surround you.
+
+   It is a separate render on purpose. render3d() stays exactly as it was,
+   because that is the view the shortlist and the precise reading depend on,
+   and bloom works directly against both.
+
+   No WebGL. Measured on the live board first: a 222-circle orbit holds 60fps
+   in SVG, and so does the same orbit with a per-point Gaussian glow, so the
+   look was reachable without a rewrite or a new dependency. */
+let camD = 2.6;                 // camera distance; < 1 puts it inside the shell
+/* The near limit is measured, not chosen for drama. Share of the 221 names
+   still in front of the camera: 0.70 and out 100%, 0.55 93%, 0.45 78%,
+   0.35 41%, 0.30 just 17%. This is an EXPLORING mode whose point is clicking
+   names, so flying to 0.30 would look cinematic and leave 83% of the board
+   behind your head. 0.45 is as deep as it goes, and what is culled is
+   reported rather than silently dropped. */
+const CAM_NEAR = 0.45, CAM_FAR = 6.0;
+let spin = null;                // inertia after a drag
+
+function rotIm(wx, wy, wz, cd){
+  const ca=Math.cos(yaw), sa=Math.sin(yaw);
+  const x1 =  wx*ca + wz*sa;
+  const z1 = -wx*sa + wz*ca;
+  const cb=Math.cos(pitch), sb=Math.sin(pitch);
+  const y2 = wy*cb - z1*sb;
+  const z2 = wy*sb + z1*cb;
+  const d  = cd - z2;
+  if(d <= 0.09) return null;    // at or behind the camera: cull, never divide
+  const s = cd/d;
+  return {x:x1*s, y:-y2*s, s, dist:d};
+}
+
+function renderImmersive(){
+  const svg=document.getElementById('chart');
+  const {W,H,fs,rk}=VB;
+  const Zk = zaxis==='ret' ? 'ret' : 'vol';
+  const series=activeSeries()
+    .map(s=>({...s, tail:s.tail.slice(-tail), z:(s[Zk]||[]).slice(-tail)}))
+    .filter(s=>s.z.length===s.tail.length && s.z.every(v=>v!=null));
+  if(!series.length){ svg.innerHTML=''; noteHidden(0,0); return; }
+
+  const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+  const asinh=v=>Math.log(v+Math.sqrt(v*v+1));
+  const medOf=a=>{const t=[...a].sort((x,y)=>x-y); return Math.max(1e-6,t[Math.floor(t.length/2)]||1);};
+  const xs=[],ys=[],ds=[];
+  series.forEach(s=>s.tail.forEach(([r,m])=>{xs.push(r);ys.push(m);ds.push(Math.hypot(r-100,m-100));}));
+  const LON=84*Math.PI/180, LAT=72*Math.PI/180, R_FLOOR=0.14;
+  const sx_=medOf(xs.map(v=>Math.abs(v-100))), sy_=medOf(ys.map(v=>Math.abs(v-100)));
+  const mx_=Math.max(1e-6,...xs.map(v=>Math.abs(v-100))), my_=Math.max(1e-6,...ys.map(v=>Math.abs(v-100)));
+  const sd_=medOf(ds), md_=Math.max(1e-6,...ds);
+  const lonOf=r=>clamp(Math.sign(r-100)*asinh(Math.abs(r-100)/sx_)/asinh(mx_/sx_),-1,1)*LON;
+  const latOf=m=>clamp(Math.sign(m-100)*asinh(Math.abs(m-100)/sy_)/asinh(my_/sy_),-1,1)*LAT;
+  const radOf=(r,m)=>R_FLOOR+(1-R_FLOOR)*clamp(asinh(Math.hypot(r-100,m-100)/sd_)/asinh(md_/sd_),0,1);
+  const world=(lo,la,r)=>[r*Math.cos(la)*Math.sin(lo), r*Math.sin(la), r*Math.cos(la)*Math.cos(lo)];
+  const wOf=(r,m)=>world(lonOf(r), latOf(m), radOf(r,m));
+
+  const k = Math.min(W,H)*0.40*zoom;
+  const ox = W/2+panX, oy = H/2+panY;
+  const P = (r,m) => { const q=rotIm(...wOf(r,m), camD); if(!q) return null;
+                       return {x:ox+k*q.x, y:oy+k*q.y, s:q.s, dist:q.dist}; };
+  const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+  /* Bokeh in four buckets, not per point. A distinct stdDeviation per point
+     would mean 221 filter elements; four covers the near-soft to far-sharp
+     range and keeps one filter per bucket. */
+  let out = '<defs>'
+    + [0,1,2,3].map(i=>`<filter id="imb${i}" x="-160%" y="-160%" width="420%" height="420%">`
+        + `<feGaussianBlur stdDeviation="${(0.7+i*2.3).toFixed(1)}"/></filter>`).join('')
+    + '<filter id="imglow" x="-160%" y="-160%" width="420%" height="420%">'
+    + '<feGaussianBlur stdDeviation="3.2" result="b"/>'
+    + '<feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>'
+    + '</filter></defs>';
+
+  /* Orientation has to survive being inside the cloud: without the equator
+     and meridian there is no up, and no way to tell Leading from Lagging. */
+  const arc=(fn,cls)=>{
+    let run=[],o='';
+    const flush=()=>{ if(run.length>1) o+=`<polyline class="im-grid ${cls}" points="${run.join(' ')}"/>`; run=[]; };
+    for(let a=-90;a<=90;a+=2){
+      const q=rotIm(...fn(a*Math.PI/180), camD);
+      if(!q){ flush(); continue; }
+      run.push(`${(ox+k*q.x).toFixed(1)},${(oy+k*q.y).toFixed(1)}`);
+    }
+    flush(); return o;
+  };
+  out += arc(t=>world(t,0,1),'eq') + arc(t=>world(0,t,1),'mer');
+
+  /* Every tail point becomes a particle, the latest one the bright star.
+     Density is the one thing that does NOT carry over from the reference:
+     that cloud is tens of thousands of particles and this board has ~221
+     names, so even with full tails it reads as a constellation. Said plainly
+     rather than chased. */
+  /* PARTICLE BUDGET, set from measurement rather than taste. Timed on this
+     board, JS+layout alone per render:
+         221 dots   3.8ms      884 dots   7.3ms      2652 dots  24.8ms
+     against 5.3ms for the analytic 3D view. At full tails for 221 names the
+     mode is over a 60fps frame BEFORE any painting, so the tail is thinned by
+     a stride instead. Heads are never dropped: they are the clickable points
+     and the thing the labels name. */
+  const BUDGET=900;
+  const stride=Math.max(1, Math.ceil(series.length*tail/BUDGET));
+  const rows=[];
+  series.forEach((s,i)=>{
+    const last=s.tail[s.tail.length-1];
+    const q=quadrant(last[0],last[1]), cls=quadCls(q);
+    const onStage = !focusKey || s[focusField()]===focusKey;
+    s.tail.forEach((tp,j)=>{
+      const head = j===s.tail.length-1;
+      if(!head && (s.tail.length-1-j) % stride) return;
+      const p=P(tp[0],tp[1]); if(!p) return;
+      rows.push({p, cls, head, i, s, onStage,
+                 age:(j+1)/s.tail.length,
+                 pick: focusName && s.name===focusName});
+    });
+  });
+  rows.sort((a,b)=>b.p.dist-a.p.dist);          // far first, near last = on top
+
+  let pts='', hits='';
+  rows.forEach(r=>{
+    const {p,cls,head}=r;
+    const rad = (head?3.4:1.5)*p.s*rk*(r.onStage?1:0.55);
+    if(rad < 0.25) return;
+    const op = clamp((head?0.95:0.40)*r.age*(r.onStage?1:0.25)*clamp(2.2-p.dist*0.5,0.12,1), 0.03, 1);
+    /* ONLY the 221 head points are filtered. Measured: filtering all 2,652
+       particles ran at 30fps with 38 of 46 frames dropped, because an SVG
+       filter is a per-element offscreen rasterisation. Tail particles get
+       their softness from size and opacity instead, which costs nothing, and
+       the bloom that actually reads is on the heads. */
+    const f = head ? (p.s>1.35 ? 'url(#imb2)' : 'url(#imglow)') : '';
+    pts += `<circle class="im-dot ${cls}${r.pick?' pick':''}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}"`
+         + ` r="${rad.toFixed(1)}" opacity="${op.toFixed(2)}"${f?` filter="${f}"`:''}/>`;
+    if(head){
+      /* The HIT target is its own circle, never the glowing one. A filtered
+         circle still hit-tests on its geometric r, so a 3px star under a 20px
+         bloom would be almost unclickable. This one is invisible, at least
+         13px, and carries .sph + data-i so the shared click path binds to it
+         with no second implementation. */
+      const hr=Math.max(13*rk, rad*1.9);
+      hits += `<circle class="sph im-hit" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}"`
+            + ` r="${hr.toFixed(1)}" data-i="${r.i}" tabindex="0"`
+            + ` aria-label="${esc(r.s.name)} · ${quadrant(r.s.tail[r.s.tail.length-1][0], r.s.tail[r.s.tail.length-1][1])}"></circle>`;
+    }
+  });
+
+  /* Labels only for what is close enough to read, or the map is a wall of
+     text the moment the camera is inside. */
+  const lab=[];
+  rows.filter(r=>r.head && r.p.s>1.25 && (focusKey? r.onStage : true))
+      .sort((a,b)=>b.p.s-a.p.s).slice(0,14)
+      .forEach(r=>lab.push({x:r.p.x, y:r.p.y, r:Math.max(6,3.4*r.p.s*rk),
+        text:shortName(r.s.name), html:esc(shortName(r.s.name)),
+        cls:'plabel halo', prio:(r.pick?1e9:0)+r.p.s}));
+  const placed=placeLabels(lab, {x0:4,y0:4,x1:W-4,y1:H-4}, fs.p, []);
+  noteHidden(placed.hidden, lab.length);
+
+  svg.innerHTML = out + pts + placed.out + hits;
+  bindPoints(svg, series, renderImmersive);
+  /* Attached ONCE. innerHTML replaces the children, not the <svg> itself, so
+     re-adding here every render stacked a new listener per frame. */
+  if(!svg.__imDbl){
+    svg.__imDbl=true;
+    svg.addEventListener('dblclick', e=>{
+      if(dim!=='im') return;
+      e.preventDefault();
+      if(focusKey){ focusKey=null; focusName=null; hideTip(); renderImmersive(); }
+    });
+  }
+
+  const inside = camD < 1;
+  const shown = (out.match(/class="sph im-hit"/g)||[]).length || hits.split('class="sph im-hit"').length-1;
+  const culled = series.length - shown;
+  document.getElementById('volHint').textContent =
+    `${series.length} plotted · camera ${camD.toFixed(2)} — ${inside?'inside the cloud':'outside, drag to orbit'}`
+    + (culled>0 ? ` · ${culled} behind the camera` : '');
+  document.getElementById('sizeLegend').innerHTML =
+    `<span class="quad-key">drag to look around · <strong>Alt</strong>+wheel or the +/− buttons to fly in and out</span>`
+    + `<span class="quad-key">click a point to isolate its ${view==='stocks'?'sector':'industry'}, double-click to clear</span>`
+    + (inside ? `<span class="quad-key">you are <strong>inside</strong> the shell — points behind the camera are culled</span>` : '');
+  document.getElementById('indLegend').hidden = true;
+}
+
+/* Every interaction below must redraw whichever 3D mode is live. Calling
+   render3d() directly was how the immersive view would have frozen on
+   drag while still looking interactive. */
+const draw3 = () => (dim==='im' ? renderImmersive() : render3d());
 
 /* ── rotation by drag / arrow keys ── */
 (function(){
@@ -831,7 +1028,7 @@ function render3d(){
     if(drag.mode==='pan'){
       const g=scaleOf(); if(!g) return;
       panX=drag.panX+(x-drag.x)/g.sc; panY=drag.panY+(y-drag.y)/g.sc;
-      clampPan(); render3d(); return;
+      clampPan(); draw3(); return;
     }
     /* Both axes follow the mouse, as if the globe's front face were being
        dragged. Pitch used to be negated, so horizontal tracked the pointer
@@ -840,7 +1037,7 @@ function render3d(){
        pitch, not lower it. */
     yaw = drag.yaw + (x-drag.x)*0.006;
     pitch = Math.max(-1.35, Math.min(1.35, drag.pitch + (y-drag.y)*0.006));
-    render3d();
+    draw3();
   };
   const end=()=>{ drag=null; };
   window.__rrgDragged = () => suppressClick;
@@ -856,14 +1053,14 @@ function render3d(){
     window.removeEventListener('pointermove',onMove);
     window.removeEventListener('pointerup',onUp);
     window.removeEventListener('pointercancel',onUp); };
-  svg.addEventListener('pointerdown',e=>{ if(dim!=='3') return;
+  svg.addEventListener('pointerdown',e=>{ if(dim!=='3'&&dim!=='im') return;
     const pan = e.shiftKey || e.button===1 || e.button===2;
     if(pan) e.preventDefault();
     start(e.clientX,e.clientY, pan?'pan':'rotate');
     window.addEventListener('pointermove',onMove);
     window.addEventListener('pointerup',onUp);
     window.addEventListener('pointercancel',onUp); });
-  svg.addEventListener('contextmenu',e=>{ if(dim==='3') e.preventDefault(); });
+  svg.addEventListener('contextmenu',e=>{ if(dim==='3'||dim==='im') e.preventDefault(); });
   /* ZOOMING, AND WHY IT TAKES FOUR PATHS.
      A plain wheel must scroll the PAGE - taking the wheel outright left the
      page frozen whenever the cursor sat over the globe, which after clicking
@@ -883,6 +1080,14 @@ function render3d(){
      All four funnel into zoomAt(), so the zoom-toward-the-pointer maths
      lives in one place. */
   function zoomAt(factor, clientX, clientY){
+    /* Immersive zoom is a DOLLY, not a scale. Scaling the picture makes the
+       cloud bigger; moving the camera takes you into it, which is the whole
+       point of the mode. Dividing by factor so "zoom in" flies forward. */
+    if(dim==='im'){
+      const nd = Math.min(CAM_FAR, Math.max(CAM_NEAR, camD/factor));
+      if(nd===camD) return;
+      camD = nd; renderImmersive(); return;
+    }
     const next = Math.min(6, Math.max(0.5, zoom * factor));
     if(next === zoom) return;
     /* Hold the world point under the pointer still. Without this the
@@ -899,12 +1104,12 @@ function render3d(){
     zoom = next;
     if(zoom<=1){ panX=0; panY=0; }   // zooming back out re-centres
     clampPan();
-    hideTip(); render3d();
+    hideTip(); draw3();
   }
   window.__rrgZoom = () => zoom;     // for verification
 
   svg.addEventListener('wheel',e=>{
-    if(dim!=='3') return;
+    if(dim!=='3'&&dim!=='im') return;
     if(!(e.ctrlKey || e.altKey)) return;   // plain wheel: let the page scroll
     e.preventDefault();
     zoomAt(e.deltaY < 0 ? 1.12 : 1/1.12, e.clientX, e.clientY);
@@ -913,14 +1118,14 @@ function render3d(){
   /* Safari's pinch. e.scale is cumulative from the gesture start, so it is
      differenced against the last sample to get a per-event factor. */
   let gScale=1;
-  svg.addEventListener('gesturestart', e=>{ if(dim!=='3') return;
+  svg.addEventListener('gesturestart', e=>{ if(dim!=='3'&&dim!=='im') return;
     e.preventDefault(); gScale=1; });
-  svg.addEventListener('gesturechange', e=>{ if(dim!=='3') return;
+  svg.addEventListener('gesturechange', e=>{ if(dim!=='3'&&dim!=='im') return;
     e.preventDefault();
     const f = e.scale / (gScale || 1); gScale = e.scale;
     if(isFinite(f) && f>0) zoomAt(f, e.clientX, e.clientY);
   });
-  svg.addEventListener('gestureend', e=>{ if(dim==='3') e.preventDefault(); });
+  svg.addEventListener('gestureend', e=>{ if(dim==='3'||dim==='im') e.preventDefault(); });
 
   // the gesture-free path: zoom about the centre of the view
   const btnZoom=f=>()=>{ const r=svg.getBoundingClientRect();
@@ -928,9 +1133,9 @@ function render3d(){
   document.getElementById('zoomIn').addEventListener('click', btnZoom(1.35));
   document.getElementById('zoomOut').addEventListener('click', btnZoom(1/1.35));
   document.getElementById('resetView').addEventListener('click',()=>{
-    yaw=HOME.yaw; pitch=HOME.pitch; zoom=1; panX=0; panY=0; render3d(); });
+    yaw=HOME.yaw; pitch=HOME.pitch; zoom=1; panX=0; panY=0; camD=2.6; draw3(); });
   document.getElementById('faceOn').addEventListener('click',()=>{
-    yaw=0; pitch=0; render3d(); });
+    yaw=0; pitch=0; draw3(); });
 
   /* A picked stock's tail was rendering all along - at about 36x85px, which
      is a scribble, not a tail. Sectors are 24 smooth baskets so their arcs
@@ -968,7 +1173,7 @@ function render3d(){
     const nx=VIEW.W/2 - k2*u - (VIEW.W/2 - k2*VIEW.bcx);
     const ny=VIEW.H/2 - k2*v - (VIEW.H/2 - k2*VIEW.bcy);
     if(!isFinite(nx) || !isFinite(ny)) return;
-    panX=nx; panY=ny; zoom=next; clampPan(); render3d();
+    panX=nx; panY=ny; zoom=next; clampPan(); draw3();
   }
   window.__rrgFrame = frameOnPick;
 })();
@@ -1017,9 +1222,10 @@ function syncChrome(){
   const isSec = view==='sectors';
   const bg=document.getElementById('basketLbl');
   if(bg && bg.parentElement) bg.parentElement.hidden = !isSec;
-  document.getElementById('rotRow').hidden = (dim!=='3');
-  document.getElementById('sizeLegend').hidden = (dim!=='3');
-  if(dim!=='3') document.getElementById('indLegend').hidden = true;
+  const is3=(dim==='3'||dim==='im');
+  document.getElementById('rotRow').hidden = !is3;
+  document.getElementById('sizeLegend').hidden = !is3;
+  if(!is3) document.getElementById('indLegend').hidden = true;
   const n=activeSeries().length;
   document.getElementById('pickHint').textContent =
     view==='stocks' && sectorPick==='__all__'

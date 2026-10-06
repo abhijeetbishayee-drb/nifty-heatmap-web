@@ -681,3 +681,24 @@ table.sl tbody tr:hover{ background:var(--panel-2); }
   table.sl th:nth-child(n+5), table.sl td:nth-child(n+5){ display:none; }
   table.sl th, table.sl td{ padding:5px 9px; }
 }
+
+
+/* ── Immersive view ────────────────────────────────────────────────────
+   Quadrant HUES are kept rather than swapped for the reference's cyan and
+   amber: the colour is the only thing still telling you which quadrant a
+   point is in once you are inside the cloud and the axes are behind you.
+   The hologram look comes from bloom and depth, not from recolouring away
+   the meaning. */
+#chart.dim-im{ background:#06070a; border-radius:10px; }
+.im-grid{ fill:none; stroke:var(--text-dim); stroke-width:1; opacity:.22; }
+.im-grid.eq{ opacity:.34; }
+.im-dot{ stroke:none; }
+.im-dot.q-lead{ fill:var(--q-lead); }
+.im-dot.q-weak{ fill:var(--q-weak); }
+.im-dot.q-lag { fill:var(--q-lag);  }
+.im-dot.q-imp { fill:var(--q-imp);  }
+.im-dot.pick { fill:#fff; }
+/* The hit target carries no paint at all. It must still receive events, so
+   fill:none is wrong here — that makes an SVG shape transparent to hits. */
+.im-hit{ fill:transparent; stroke:none; cursor:pointer; }
+.im-hit:focus{ outline:none; stroke:var(--accent); stroke-width:1.5; }
