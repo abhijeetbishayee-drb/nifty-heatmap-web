@@ -27,7 +27,11 @@
     </nav>
   </div>
 
-  <div class="indices-row" id="indicesRow"></div>
+  <!-- No indices-row here, unlike index.html. NIFTY 50 and BANK NIFTY are
+       already the two pinned rows at the top of the sector strip below, with
+       the same price, change and day range, so the cards were the same numbers
+       twice. The Nifty 50 board keeps them: there they are the headline and
+       nothing repeats them. -->
 
   <div class="meta-row">
     <div class="legend" id="legend"></div>
@@ -224,10 +228,6 @@ function paintSectors(){
 
 function render(data){
   latest = data;
-  const indices = data.indices || {};
-  document.getElementById('indicesRow').innerHTML =
-    indexCardHtml('NIFTY 50', indices.nifty) + indexCardHtml('BANK NIFTY', indices.banknifty);
-
   const b = data.breadth;
   document.getElementById('breadthTag').textContent =
     b ? `${b.advancers} advancing · ${b.decliners} declining of ${b.total}` : '';
