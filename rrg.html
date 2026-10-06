@@ -6,7 +6,7 @@
 <title>Relative Rotation Graph (Beta)</title>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="assets/app.css?v=20261005d">
+<link rel="stylesheet" href="assets/app.css?v=20261006a">
 </head>
 <body>
 <div class="wrap">
@@ -83,6 +83,28 @@
   <div class="quad-legend" id="sizeLegend" hidden></div>
   <div class="quad-legend" id="indLegend" hidden></div>
   <div class="footnote ca-note" id="basketNote" hidden></div>
+
+  <section class="shortlist" id="shortlist" hidden>
+    <div class="sl-head"><strong>Shortlist</strong><span class="sl-count" id="slCount"></span></div>
+    <div class="controls sl-ctl">
+      <span class="ctl-group"><span class="lbl">Quadrant</span>
+        <button type="button" data-sq="Leading" class="active">Leading</button>
+        <button type="button" data-sq="Improving">Improving</button>
+        <button type="button" data-sq="Weakening">Weakening</button>
+        <button type="button" data-sq="Lagging">Lagging</button>
+        <button type="button" data-sq="any">Any</button></span>
+      <span class="ctl-group"><span class="lbl">Held at least</span>
+        <button type="button" data-sh="1">1</button>
+        <button type="button" data-sh="4" class="active">4</button>
+        <button type="button" data-sh="8">8</button></span>
+      <span class="ctl-group"><span class="lbl">Return</span>
+        <button type="button" data-sr="up" class="active">Up</button>
+        <button type="button" data-sr="down">Down</button>
+        <button type="button" data-sr="any">Any</button></span>
+    </div>
+    <div class="sl-body" id="slBody"></div>
+    <p class="footnote sl-note" id="slNote"></p>
+  </section>
 
   <div class="footnote">
     Each point is one security against <strong>NIFTY 50</strong>: horizontal is relative strength,
@@ -972,6 +994,11 @@ function showTip(s,e){
   t.innerHTML=`<strong>${s.name}${adjStar(s.name)}</strong> <span class="q ${quadCls(q)}">${q}</span><br>`+
     `RS-Ratio ${last[0].toFixed(2)} · RS-Mom ${last[1].toFixed(2)}`+
     `<br>conviction ${Math.hypot(last[0]-100,last[1]-100).toFixed(2)}`+
+    `<br>held ${heldBars(s).held} of ${s.tail.length} ${period==='weekly'?'weeks':'sessions'}`+
+    /* The quadrant is RELATIVE. Without the absolute move beside it, a name
+       in Leading reads as "going up" — on the 2026-10-05 board 9 of the 30
+       Leading names were down. */
+    ((s.ret&&s.ret.length)?`<br>return ${s.ret[s.ret.length-1]>0?'+':''}${s.ret[s.ret.length-1].toFixed(1)}% absolute`:'')+
     (s.vol&&s.vol.length?`<br>volatility ${s.vol[s.vol.length-1].toFixed(1)}% annualised`:'')+
     (s.basis!==undefined?`<br><span class="dim">equal-weight of ${s.basis} of ${s.count}</span>`:'')+
     (s.exOutliers&&s.exOutliers.length?`<br><span class="dim">excluding ${s.exOutliers.join(', ')}</span>`:'')+
@@ -1038,6 +1065,96 @@ function syncChrome(){
     : '';
 }
 
+
+/* ── Shortlist ────────────────────────────────────────────────────────
+   Measured on the 2026-10-05 board: 30 names sat in Leading and 9 of them
+   were DOWN in absolute terms (GODREJCP -3.0, HEROMOTOCO -2.8, MARICO -2.5).
+   The quadrant is a RELATIVE statement and reads as an absolute one, so the
+   return a name actually produced is shown beside it, not buried as the 3D
+   depth axis.
+
+   Persistence rather than crossings: on that same board 74 of 232 names
+   changed quadrant on a single daily bar, so a "what moved today" feed is
+   noise. How long a name has HELD its quadrant separates the 18 that have
+   held all 12 bars from the 74 that arrived yesterday. */
+let sq='Leading', sh=4, sr='up';
+
+function heldBars(s){
+  const qs=s.tail.map(p=>quadrant(p[0],p[1]));
+  const cur=qs[qs.length-1]; let h=1;
+  for(let i=qs.length-2;i>=0;i--){ if(qs[i]===cur) h++; else break; }
+  return {q:cur, held:h, span:qs.length};
+}
+function lastRet(s){ return (s.ret&&s.ret.length) ? s.ret[s.ret.length-1] : null; }
+
+function shortlistRows(){
+  return activeSeries().map(s=>{
+    const {q,held,span}=heldBars(s), r=lastRet(s);
+    return {name:s.name, q, held, span, ret:r,
+            rs:s.tail[s.tail.length-1][0], mom:s.tail[s.tail.length-1][1]};
+  }).filter(x=>
+       (sq==='any' || x.q===sq)
+    && x.held>=sh
+    && (sr==='any' || (r=>r!=null && (sr==='up'? r>0 : r<0))(x.ret))
+  ).sort((a,b)=> b.held-a.held || (b.ret??-1e9)-(a.ret??-1e9));
+}
+
+function renderShortlist(){
+  const box=document.getElementById('shortlist');
+  if(!box) return;
+  box.hidden = !DATA;
+  if(!DATA) return;
+  const rows=shortlistRows(), total=activeSeries().length;
+  /* An empty panel that only says "loosen a filter" wastes the one moment the
+     reader is looking. Report WHICH filter emptied it — on the 2026-10-05
+     board the sector view legitimately returns nothing, because only 2 of 24
+     sectors are Leading and neither has held while rising. That is a finding,
+     not a dead end. */
+  const all=activeSeries().map(x=>({...heldBars(x), ret:lastRet(x)}));
+  const inQ = sq==='any' ? all : all.filter(x=>x.q===sq);
+  const inQH = inQ.filter(x=>x.held>=sh);
+  const unit = view==='stocks'?'stocks':'sectors';
+  const bar  = period==='weekly'?'weeks':'sessions';
+  const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  document.getElementById('slCount').textContent =
+    `${rows.length} of ${total} ${view==='stocks'?'stocks':'sectors'} · ${period}`;
+  const maxHeld=Math.max(1,...rows.map(r=>r.span));
+  document.getElementById('slBody').innerHTML = !rows.length
+    ? `<div class="sl-empty">`+(
+        !inQ.length  ? `No ${unit} are in <strong>${sq==='any'?'any quadrant':esc(sq)}</strong> right now.`
+      : !inQH.length ? `${inQ.length} of ${total} ${unit} are <strong>${esc(sq)}</strong>, but none has held it for ${sh}+ ${bar}.`
+      :                `${inQH.length} of ${total} ${unit} are <strong>${esc(sq)}</strong> and have held ${sh}+ ${bar}, but none is ${sr==='up'?'up':'down'} in absolute terms.`
+      )+` Loosen a filter to see the rest.</div>`
+    : `<table class="sl"><thead><tr><th class="n">symbol</th><th>held</th>
+         <th class="n">persistence</th><th>return</th><th>RS</th><th>mom</th></tr></thead><tbody>`
+      + rows.map(r=>{
+          const cls=r.ret==null?'':(r.ret>0?'sl-up':'sl-dn');
+          const w=Math.round(56*r.held/maxHeld);
+          return `<tr><td class="n">${esc(r.name)}</td><td>${r.held}</td>`
+            + `<td class="n"><span class="sl-bar ${cls}"><i style="width:${w}px"></i></span></td>`
+            + `<td class="${cls}">${r.ret==null?'–':(r.ret>0?'+':'')+r.ret.toFixed(1)+'%'}</td>`
+            + `<td>${r.rs.toFixed(1)}</td><td>${r.mom.toFixed(1)}</td></tr>`;
+        }).join('')
+      + '</tbody></table>';
+  document.getElementById('slNote').innerHTML =
+    `<strong>held</strong> is consecutive ${period==='weekly'?'weeks':'sessions'} in the same quadrant, `
+    + `out of the ${maxHeld} the trail covers. <strong>return</strong> is the absolute move over that `
+    + `same stretch — the quadrant only says how a name did <em>against NIFTY 50</em>, so a Leading `
+    + `name can still be down, and on this board some are.`;
+}
+
+function wireSL(attr, fn){
+  document.querySelectorAll(`.sl-ctl button[${attr}]`).forEach(b=>{
+    b.addEventListener('click',()=>{
+      document.querySelectorAll(`.sl-ctl button[${attr}]`).forEach(o=>o.classList.toggle('active',o===b));
+      fn(b.getAttribute(attr)); renderShortlist();
+    });
+  });
+}
+wireSL('data-sq', v=>{sq=v;});
+wireSL('data-sh', v=>{sh=+v;});
+wireSL('data-sr', v=>{sr=v;});
+
 function wire(attr, fn){
   document.querySelectorAll(`.controls button[${attr}]`).forEach(b=>{
     b.addEventListener('click',()=>{
@@ -1047,7 +1164,7 @@ function wire(attr, fn){
          stale focus across meant the next view opened already filtered with
          no visible reason why. */
       focusKey=null; focusName=null;
-      fn(b.getAttribute(attr)); syncChrome(); render();
+      fn(b.getAttribute(attr)); syncChrome(); render(); renderShortlist();
     });
   });
 }
@@ -1058,22 +1175,33 @@ function drillInto(sectorName){
   const opt=[...document.getElementById('sectorPick').options]
     .find(o=>o.value===sectorName);
   if(!opt) return;                       // a sector with no stocks of its own
-  view='stocks'; sectorPick=sectorName;
+  view='stocks'; sectorPick=sectorName; stocksDefaultWeekly();
   document.getElementById('sectorPick').value=sectorName;
   document.querySelectorAll('.controls button[data-view]').forEach(b=>
     b.classList.toggle('active', b.getAttribute('data-view')==='stocks'));
   focusKey=null; focusName=null;
-  syncChrome(); render();
+  syncChrome(); render(); renderShortlist();
 }
 
-wire('data-view', v=>{view=v;});
+function stocksDefaultWeekly(){
+  /* Measured on the 2026-10-05 board: 74 of 232 names changed quadrant on a
+     single DAILY bar — a third of the whole board — so a daily quadrant is
+     too unstable to decide on. Weekly still moves 46 of 221, but a week of
+     evidence sits behind each step. Daily stays one click away; this only
+     sets where the view OPENS. */
+  if(period==='weekly') return;
+  period='weekly';
+  document.querySelectorAll('.controls button[data-period]').forEach(b=>
+    b.classList.toggle('active', b.getAttribute('data-period')==='weekly'));
+}
+wire('data-view', v=>{ view=v; if(v==='stocks') stocksDefaultWeekly(); });
 wire('data-period', p=>{period=p;});
 wire('data-tail', t=>{tail=+t;});
 wire('data-dim', d=>{dim=d;});
 wire('data-z', z=>{zaxis=z;});
 wire('data-basket', b=>{basket=b;});
 document.getElementById('sectorPick').addEventListener('change',e=>{
-  sectorPick=e.target.value; focusKey=null; focusName=null; syncChrome(); render();
+  sectorPick=e.target.value; focusKey=null; focusName=null; syncChrome(); render(); renderShortlist();
 });
 
 async function load(){
@@ -1085,7 +1213,7 @@ async function load(){
     document.getElementById('sectorPick').innerHTML =
       `<option value="__all__">All sectors</option>`+secs.map(s=>`<option value="${s}">${s}</option>`).join('');
     stamp();
-    syncChrome(); render();
+    syncChrome(); render(); renderShortlist();
   }catch(e){ setStatus('Could not reach rrg_data.json',true); }
 }
 load();
