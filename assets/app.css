@@ -698,6 +698,15 @@ table.sl tbody tr:hover{ background:var(--panel-2); }
 .im-dot.q-lag { fill:var(--q-lag);  }
 .im-dot.q-imp { fill:var(--q-imp);  }
 .im-dot.pick { fill:#fff; }
+/* Threads carry the quadrant colour of the name they start from, so the web
+   still reads as sector structure rather than as decoration. */
+.im-link{ fill:none; }
+.im-link.q-lead{ stroke:var(--q-lead); }
+.im-link.q-weak{ stroke:var(--q-weak); }
+.im-link.q-lag { stroke:var(--q-lag);  }
+.im-link.q-imp { stroke:var(--q-imp);  }
+/* The core is what makes a point read as a light source instead of a dot. */
+.im-core{ fill:#eaf6ff; stroke:none; }
 /* The hit target carries no paint at all. It must still receive events, so
    fill:none is wrong here — that makes an SVG shape transparent to hits. */
 .im-hit{ fill:transparent; stroke:none; cursor:pointer; }

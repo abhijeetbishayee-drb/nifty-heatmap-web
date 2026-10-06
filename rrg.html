@@ -814,6 +814,7 @@ function bindPoints(svg, series, rerender){
    No WebGL. Measured on the live board first: a 222-circle orbit holds 60fps
    in SVG, and so does the same orbit with a per-point Gaussian glow, so the
    look was reachable without a rewrite or a new dependency. */
+let IM_LINKS = {key:null, links:[]};
 let camD = 2.6;                 // camera distance; < 1 puts it inside the shell
 /* The near limit is measured, not chosen for drama. Share of the 221 names
    still in front of the camera: 0.70 and out 100%, 0.55 93%, 0.45 78%,
@@ -871,11 +872,14 @@ function renderImmersive(){
      would mean 221 filter elements; four covers the near-soft to far-sharp
      range and keeps one filter per bucket. */
   let out = '<defs>'
-    + [0,1,2,3].map(i=>`<filter id="imb${i}" x="-160%" y="-160%" width="420%" height="420%">`
+    + [0,1,2,3].map(i=>`<filter id="imb${i}" x="-200%" y="-200%" width="500%" height="500%">`
         + `<feGaussianBlur stdDeviation="${(0.7+i*2.3).toFixed(1)}"/></filter>`).join('')
-    + '<filter id="imglow" x="-160%" y="-160%" width="420%" height="420%">'
-    + '<feGaussianBlur stdDeviation="3.2" result="b"/>'
-    + '<feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>'
+    /* Bloom is stacked rather than widened: three copies of the same blur
+       read as light, one wide blur reads as fog. */
+    + '<filter id="imglow" x="-200%" y="-200%" width="500%" height="500%">'
+    + '<feGaussianBlur stdDeviation="2.6" result="b"/>'
+    + '<feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="b"/>'
+    + '<feMergeNode in="SourceGraphic"/></feMerge>'
     + '</filter></defs>';
 
   /* Orientation has to survive being inside the cloud: without the equator
@@ -904,6 +908,30 @@ function renderImmersive(){
      mode is over a 60fps frame BEFORE any painting, so the tail is thinned by
      a stride instead. Heads are never dropped: they are the clickable points
      and the thing the labels name. */
+  /* THREADS. The reference's most recognisable feature is the web between
+     particles, and there is a truthful version of it here: link each name to
+     its nearest peers IN THE SAME SECTOR. The strands are real structure, so
+     the look is earned rather than drawn on.
+     Cached on (view, period, tail) because neighbours depend on the DATA and
+     not on the camera — recomputing an O(n^2) search every frame would have
+     cost more than drawing them. */
+  const nkey = `${view}|${period}|${tail}|${series.length}`;
+  if(IM_LINKS.key !== nkey){
+    const w = series.map(s=>wOf(s.tail[s.tail.length-1][0], s.tail[s.tail.length-1][1]));
+    const links=[];
+    for(let i=0;i<series.length;i++){
+      const peers=[];
+      for(let j=0;j<series.length;j++){
+        if(i===j || series[i].sector!==series[j].sector) continue;
+        const d=Math.hypot(w[i][0]-w[j][0], w[i][1]-w[j][1], w[i][2]-w[j][2]);
+        peers.push([d,j]);
+      }
+      peers.sort((a,b)=>a[0]-b[0]);
+      peers.slice(0,2).forEach(([d,j])=>{ if(i<j) links.push([i,j,d]); });
+    }
+    IM_LINKS = {key:nkey, links};
+  }
+
   const BUDGET=900;
   const stride=Math.max(1, Math.ceil(series.length*tail/BUDGET));
   const rows=[];
@@ -922,6 +950,22 @@ function renderImmersive(){
   });
   rows.sort((a,b)=>b.p.dist-a.p.dist);          // far first, near last = on top
 
+  /* Threads go down FIRST so every particle sits on top of them. */
+  let web='';
+  const headP = series.map(sx=>P(sx.tail[sx.tail.length-1][0], sx.tail[sx.tail.length-1][1]));
+  IM_LINKS.links.forEach(([i,j,d])=>{
+    const a=headP[i], b=headP[j];
+    if(!a||!b) return;                                  // either end culled
+    if(focusKey && series[i][focusField()]!==focusKey && series[j][focusField()]!==focusKey) return;
+    const s0=(a.s+b.s)/2;
+    /* 0.5px strokes were invisible on a dark field no matter the opacity —
+       the width was the problem, not the alpha. */
+    const op=clamp(0.52*s0*clamp(1.7-d*1.2,0.18,1), 0.04, 0.7);
+    web += `<line class="im-link ${quadCls(quadrant(...series[i].tail[series[i].tail.length-1]))}"`
+         + ` x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}"`
+         + ` stroke-width="${Math.max(0.6,1.25*s0).toFixed(2)}" opacity="${op.toFixed(3)}"/>`;
+  });
+
   let pts='', hits='';
   rows.forEach(r=>{
     const {p,cls,head}=r;
@@ -933,9 +977,15 @@ function renderImmersive(){
        filter is a per-element offscreen rasterisation. Tail particles get
        their softness from size and opacity instead, which costs nothing, and
        the bloom that actually reads is on the heads. */
-    const f = head ? (p.s>1.35 ? 'url(#imb2)' : 'url(#imglow)') : '';
+    const f = head ? 'url(#imglow)' : '';
     pts += `<circle class="im-dot ${cls}${r.pick?' pick':''}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}"`
          + ` r="${rad.toFixed(1)}" opacity="${op.toFixed(2)}"${f?` filter="${f}"`:''}/>`;
+    /* A near-white CORE inside the coloured bloom. This is what reads as a
+       light source rather than a painted dot, and it is the single change
+       that moved this closest to the reference. Unfiltered and tiny, so 221
+       of them cost almost nothing. */
+    if(head) pts += `<circle class="im-core" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}"`
+         + ` r="${Math.max(0.6, rad*0.34).toFixed(1)}" opacity="${clamp(op*1.1,0.1,1).toFixed(2)}"/>`;
     if(head){
       /* The HIT target is its own circle, never the glowing one. A filtered
          circle still hit-tests on its geometric r, so a 3px star under a 20px
@@ -960,7 +1010,7 @@ function renderImmersive(){
   const placed=placeLabels(lab, {x0:4,y0:4,x1:W-4,y1:H-4}, fs.p, []);
   noteHidden(placed.hidden, lab.length);
 
-  svg.innerHTML = out + pts + placed.out + hits;
+  svg.innerHTML = out + web + pts + placed.out + hits;
   bindPoints(svg, series, renderImmersive);
   /* Attached ONCE. innerHTML replaces the children, not the <svg> itself, so
      re-adding here every render stacked a new listener per frame. */
