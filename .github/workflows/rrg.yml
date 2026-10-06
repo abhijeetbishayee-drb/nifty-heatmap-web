@@ -35,6 +35,27 @@ jobs:
         with:
           submodules: true
 
+      # The shared universe lives in nifty-heatmap-core, whose own weekday job
+      # rewrites NIFTY50 from NSE's constituent file. Tracking its main here is
+      # what makes a reconstitution reach the published boards WITHOUT a human
+      # remembering to bump a submodule pointer -- the failure that left nine of
+      # the fifty wrong. GITHUB_TOKEN can push this repo, so no cross-repo
+      # credential is involved: core pushes to core, this commits its pointer.
+      #
+      # It tracks core's main wholesale, not just the universe, so anything
+      # landed there reaches the boards on the next post-close run.
+      - name: Track the shared universe
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git submodule update --remote --merge nifty-heatmap-core
+          git add nifty-heatmap-core
+          if git diff --staged --quiet; then
+            echo "universe unchanged"
+          else
+            git commit -m "Bump nifty-heatmap-core to $(git -C nifty-heatmap-core rev-parse --short HEAD)"
+          fi
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
