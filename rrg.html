@@ -231,7 +231,16 @@ function detailed(series){ return !(view==='stocks' && sectorPick==='__all__'); 
 let VB={W:1000, H:620, k:1, phone:false, fs:{}};
 function layoutChart(){
   const svg=document.getElementById('chart');
-  const cssW=Math.max(1,(svg.parentElement.clientWidth||1000)-12);   // .rrg-wrap padding
+  /* FLOORED AT 240, and the floor is the bug fix. k is 1000/cssW, so a
+     container that has not been laid out yet - width ~0 or 1 - sent k to
+     1000, the font floors to 9000, PAD.l to 41408, and the four quadrant
+     rects below to widths of -26671. That is the
+       "<rect> attribute width: A negative value is not valid"
+     the console threw ~8 times on every load: two renders, four rects each,
+     before the layout settled. Measured by squeezing the parent to 1px and
+     reading the emitted widths back. Below ~240px nothing here is legible
+     anyway, so clamping costs nothing real. */
+  const cssW=Math.max(240,(svg.parentElement.clientWidth||1000)-12);   // .rrg-wrap padding
   const k=1000/cssW, phone=cssW<640;
   const H=phone ? Math.max(620, Math.round(1000*Math.min(window.innerHeight*0.62, cssW*1.3)/cssW)) : 620;
   const f=(desk,px)=>+Math.max(desk, px*k).toFixed(1);
@@ -341,10 +350,13 @@ function render2d(){
   let out='';
 
   // quadrant fills
-  out+=`<rect class="q-lead" x="${cx}" y="${PAD.t}" width="${W-PAD.r-cx}" height="${cy-PAD.t}"/>`;
-  out+=`<rect class="q-weak" x="${cx}" y="${cy}" width="${W-PAD.r-cx}" height="${H-PAD.b-cy}"/>`;
-  out+=`<rect class="q-lag"  x="${PAD.l}" y="${cy}" width="${cx-PAD.l}" height="${H-PAD.b-cy}"/>`;
-  out+=`<rect class="q-imp"  x="${PAD.l}" y="${PAD.t}" width="${cx-PAD.l}" height="${cy-PAD.t}"/>`;
+  /* nn() is the second line of defence: the floor above removes the known
+     cause, this makes the SVG valid whatever a future one turns out to be. */
+  const nn=v=>Math.max(0, v).toFixed(2);
+  out+=`<rect class="q-lead" x="${cx}" y="${PAD.t}" width="${nn(W-PAD.r-cx)}" height="${nn(cy-PAD.t)}"/>`;
+  out+=`<rect class="q-weak" x="${cx}" y="${cy}" width="${nn(W-PAD.r-cx)}" height="${nn(H-PAD.b-cy)}"/>`;
+  out+=`<rect class="q-lag"  x="${PAD.l}" y="${cy}" width="${nn(cx-PAD.l)}" height="${nn(H-PAD.b-cy)}"/>`;
+  out+=`<rect class="q-imp"  x="${PAD.l}" y="${PAD.t}" width="${nn(cx-PAD.l)}" height="${nn(cy-PAD.t)}"/>`;
 
   // ticks
   const ticks=(lo,hi)=>{const step=Math.max(0.25,+(((hi-lo)/5).toFixed(2)));const o=[];
