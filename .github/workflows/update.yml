@@ -38,10 +38,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # breadth_today.json is append-only within a session and resets on a
-          # new IST date, so it has to ride this same commit or the tracker
-          # would redraw from whatever the last committed minute happened to be.
-          git add data.json sector_data.json breadth_today.json
+          git add data.json sector_data.json
           git diff --staged --quiet || git commit -m "Update data.json + sector_data.json"
           git push
 
