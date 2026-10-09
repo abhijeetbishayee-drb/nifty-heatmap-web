@@ -1,7 +1,7 @@
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO_ROOT, "nifty-heatmap-core"))
@@ -18,6 +18,58 @@ def sort_by_pct(rows):
     return sorted(
         rows, key=lambda r: (r["pct"] if r["pct"] is not None else -999), reverse=True
     )
+
+
+IST = timezone(timedelta(hours=5, minutes=30))
+BREADTH_FILE = "breadth_today.json"
+OPEN_MIN, CLOSE_MIN = 9 * 60 + 15, 15 * 60 + 30
+
+
+def record_breadth(advancers, decliners, total):
+    """Append today's advance/decline counts to an intraday series.
+
+    The board already knew breadth, but only as a snapshot -- the number was
+    there and its SHAPE was not, so you could see 190 up / 44 down without
+    seeing that it had been 120/110 an hour earlier. This keeps one point per
+    minute for the current session, which is what the floating tracker draws.
+
+    Deliberately TODAY only. The file resets on the first run of a new IST
+    date, so it cannot grow without bound, and a full session is ~375 points
+    (~10 KB) rather than a history nobody asked for.
+
+    Outside 09:15-15:30 IST nothing is appended, so after the close the series
+    keeps the shape it ended with instead of flat-lining through the evening
+    on repeated snapshots of the same closing prices.
+
+    Keyed by minute and REPLACED rather than appended within the same minute:
+    the refresh runs about once a minute but not exactly, and two points for
+    09:47 would put a vertical step in a line that is meant to read as time.
+    """
+    now = datetime.now(IST)
+    mins = now.hour * 60 + now.minute
+    today = now.strftime("%Y-%m-%d")
+
+    doc = {"date": today, "total": total, "points": []}
+    if os.path.exists(BREADTH_FILE):
+        try:
+            with open(BREADTH_FILE) as f:
+                prev = json.load(f)
+            if prev.get("date") == today:
+                doc = prev
+        except (OSError, ValueError):
+            pass                      # a corrupt file is not worth a dead board
+
+    if OPEN_MIN <= mins <= CLOSE_MIN:
+        pts = doc["points"]
+        if pts and pts[-1][0] == mins:
+            pts[-1] = [mins, advancers, decliners]
+        else:
+            pts.append([mins, advancers, decliners])
+        doc["total"] = total
+
+    with open(BREADTH_FILE, "w") as f:
+        json.dump(doc, f, separators=(",", ":"))
+    return doc
 
 
 def main():
@@ -90,6 +142,8 @@ def main():
             "generatedAt": generated_at,
         }, f)
 
+    breadth_doc = record_breadth(advancers, decliners, fno_loaded)
+
     # Silent on an ordinary day; speaks up only when a corporate action is
     # near, has just been applied, or was listed for today and did NOT fire -
     # the last of which means the table is wrong and the board is showing a
@@ -102,6 +156,7 @@ def main():
         f"sector_data.json ({fno_loaded}/{len(FNO_ALL)} across {len(sectors) - len(pinned)} sectors "
         f"+ {len(pinned)} pinned, "
         f"{with_index} with a live sectoral index); breadth {advancers} up / {decliners} down"
+        f" ({len(breadth_doc['points'])} pts today)"
     )
 
 

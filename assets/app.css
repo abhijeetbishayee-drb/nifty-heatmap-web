@@ -711,3 +711,58 @@ table.sl tbody tr:hover{ background:var(--panel-2); }
    fill:none is wrong here — that makes an SVG shape transparent to hits. */
 .im-hit{ fill:transparent; stroke:none; cursor:pointer; }
 .im-hit:focus{ outline:none; stroke:var(--accent); stroke-width:1.5; }
+
+/* ── Floating market-breadth tracker (F&O sector board) ──────────────────
+   Bottom-right, clear of the back-to-top button at top-right. Opaque,
+   because it floats over saturated tiles. Collapsible: on a phone it would
+   otherwise cover a third of the table, and the counters alone are the part
+   worth keeping visible. */
+.breadth-float{
+  position:fixed; right:16px; bottom:16px; z-index:60;
+  width:272px; max-width:calc(100vw - 32px);
+  background:var(--panel); border:1px solid var(--border); border-radius:10px;
+  box-shadow:0 6px 24px rgba(0,0,0,0.28);
+  font-family:"IBM Plex Sans Condensed",sans-serif;
+  overflow:hidden;
+}
+.breadth-float .bf-head{
+  display:flex; align-items:center; justify-content:space-between; gap:8px;
+  padding:7px 10px; cursor:pointer; user-select:none;
+  background:var(--panel-2); border-bottom:1px solid var(--border);
+}
+.breadth-float .bf-title{
+  font-size:10.5px; font-weight:700; letter-spacing:0.07em; text-transform:uppercase;
+  color:var(--text-dim);
+}
+.breadth-float .bf-caret{ color:var(--text-dim); font-size:11px; }
+.breadth-float .bf-body{ padding:9px 10px 7px; }
+.breadth-float.collapsed .bf-body{ display:none; }
+
+.breadth-float .bf-counts{ display:grid; grid-template-columns:1fr 1fr; gap:7px; }
+.breadth-float .bf-cell{ border-radius:7px; padding:5px 8px 6px; text-align:center; }
+.breadth-float .bf-cell.up{ background:var(--b-strong-gain); color:var(--b-strong-gain-tx); }
+.breadth-float .bf-cell.dn{ background:var(--b-strong-loss); color:var(--b-strong-loss-tx); }
+.breadth-float .bf-lbl{
+  font-size:9.5px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase;
+  opacity:0.9;
+}
+.breadth-float .bf-num{
+  font-family:"IBM Plex Mono",monospace; font-size:25px; font-weight:600; line-height:1.1;
+}
+.breadth-float .bf-chart{ margin-top:8px; }
+.breadth-float .bf-chart svg{ display:block; width:100%; height:86px; }
+.breadth-float .bf-axis{
+  display:flex; justify-content:space-between;
+  font-family:"IBM Plex Mono",monospace; font-size:9.5px; color:var(--text-dim);
+  margin-top:2px;
+}
+.breadth-float .bf-note{
+  margin-top:5px; font-size:9.5px; line-height:1.35; color:var(--text-dim);
+}
+.breadth-float .bf-empty{
+  font-size:10.5px; color:var(--text-dim); padding:10px 2px; text-align:center;
+}
+@media (max-width:560px){
+  .breadth-float{ width:calc(100vw - 32px); }
+  .breadth-float .bf-num{ font-size:22px; }
+}
