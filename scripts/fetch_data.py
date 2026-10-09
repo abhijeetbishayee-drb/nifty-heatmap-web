@@ -20,6 +20,45 @@ def sort_by_pct(rows):
     )
 
 
+PERIODS_FILE = "periods.json"
+
+
+def attach_periods(rows):
+    """Fold today's live high/low into the committed week- and month-to-date
+    ranges, and hand the tile the elapsed tenure.
+
+    build_periods.py writes the COMPLETED sessions once a day and deliberately
+    leaves today out; today enters here, exactly once, from the live sweep.
+    That split is why a 50-name history fetch does not have to run every
+    minute.
+
+    A name with no period record -- a fresh constituent whose history did not
+    come back -- simply gets no week/month block and the tile falls back to the
+    day bar alone, rather than showing a range built from today only and
+    labelled as a month.
+    """
+    try:
+        with open(PERIODS_FILE) as f:
+            doc = json.load(f)
+    except (OSError, ValueError):
+        return None
+    names = doc.get("names", {})
+    for r in rows:
+        rec = names.get(r["ticker"])
+        if not rec or r.get("price") is None:
+            continue
+        hi_today = r.get("dayHigh") or r["price"]
+        lo_today = r.get("dayLow") or r["price"]
+        for pfx, key in (("w", "week"), ("m", "month")):
+            hi, lo = rec.get(pfx + "High"), rec.get(pfx + "Low")
+            hi = max(hi, hi_today) if hi is not None else hi_today
+            lo = min(lo, lo_today) if lo is not None else lo_today
+            if hi > lo:
+                r[key] = {"high": round(hi, 2), "low": round(lo, 2)}
+    return {"week": doc.get("week"), "month": doc.get("month"),
+            "asof": doc.get("asof")}
+
+
 def main():
     # Nifty 50 is a strict subset of the F&O universe, so one sweep feeds both
     # boards: data.json (Nifty 50, shape unchanged for the Android app) and
@@ -50,12 +89,16 @@ def main():
         print(f"Only {n50_loaded}/50 Nifty tickers loaded, aborting", file=sys.stderr)
         sys.exit(1)
 
+    # Must run BEFORE the write: it adds the week/month blocks to the rows.
+    tenure = attach_periods(n50_rows)
+
     with open("data.json", "w") as f:
         json.dump({
             "rows": n50_rows,
             "indices": indices,
             "gainers": n50_gainers,
             "losers": n50_losers,
+            "tenure": tenure,
             "generatedAt": generated_at,
         }, f)
 

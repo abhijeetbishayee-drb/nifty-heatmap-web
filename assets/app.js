@@ -87,6 +87,46 @@ function caTitle(r){
 }
 
 /* One stock tile: name, price, % change, day-range bar, click through to NSE. */
+
+/* Elapsed tenure for the week/month bars, set by whichever board supplies it.
+   The sector board does not, and its rows carry no week/month block either,
+   so the same tileHtml quietly renders the day bar alone there. */
+let TENURE = null;
+function setTenure(t){ TENURE = t || null; }
+
+/* Week and month ranges as ONE nested bar, under the unchanged day bar.
+   The outer band is the month so far, the brighter band inside it the week so
+   far, and the dot is the live price -- so you read at a glance where today
+   sits inside both. Both ranges cover only the sessions that have happened,
+   which is why the caption carries how many: a month range on the 2nd and on
+   the 28th are not the same kind of number, and nothing on the tile used to
+   say which one you were looking at. */
+function periodBar(r){
+  const m = r.month, w = r.week;
+  if(!m || !w || r.price === null || m.high <= m.low) return '';
+  const span = m.high - m.low;
+  const pos = v => Math.max(0, Math.min(100, (v - m.low) / span * 100));
+  const wl = pos(w.low), wr = 100 - pos(w.high);
+  const t = TENURE || {};
+  const cap = (t.week && t.month)
+    ? `W ${t.week.elapsed}/${t.week.total} M ${t.month.elapsed}/${t.month.total}`
+    : '';
+  const tip = cap
+    ? `Week ${fmtPrice(w.low)}–${fmtPrice(w.high)} · Month ${fmtPrice(m.low)}–${fmtPrice(m.high)}`
+      + ` · sessions so far / weekdays in the period (NSE holidays are not excluded from the total)`
+    : '';
+  return `
+    <div class="per-range" title="${tip}">
+      <div class="per-track">
+        <div class="per-m"></div>
+        <div class="per-w" style="left:${wl.toFixed(1)}%;right:${wr.toFixed(1)}%"></div>
+        <div class="per-dot" style="left:${pos(r.price).toFixed(1)}%"></div>
+      </div>
+      <div class="per-cap"><span>${fmtCompact(m.low)}</span><span class="ten">${cap}</span><span>${fmtCompact(m.high)}</span></div>
+    </div>
+  `;
+}
+
 function tileHtml(r){
   const pctText = (r.ca && !r.ca.adjusted) ? 'NA' : fmtPct(r.pct);
   return `
@@ -99,6 +139,7 @@ function tileHtml(r){
       </div>
       ${caTag(r)}
       ${dayRangeBar(r)}
+      ${periodBar(r)}
     </a>
   `;
 }
@@ -194,6 +235,134 @@ function startPolling(dataFile, renderFn){
 /* Floating "back to top" button. Created from here so both boards get it and
    neither can drift. Appears once you are past the first screenful, sits clear
    of the left-aligned sector headings, and honours reduced-motion. */
+
+/* The board-wide breadth line. Both boards show the SAME 750-name count now:
+   this board's own 235 F&O names and the sector board's were two different
+   answers to one question, and on 2026-10-09 they disagreed outright -- 188
+   up / 46 down against 353 / 391 at the same moment. One number, and it is
+   the wider one. */
+function setBreadthHeader(doc){
+  const el = document.getElementById('breadthTag');
+  if(!el) return;
+  const pts = (doc && doc.points) || [];
+  if(!pts.length){ el.textContent = ''; return; }
+  const [, adv, dec] = pts[pts.length - 1];
+  el.textContent = `${adv} advancing · ${dec} declining of ${doc.total} (NSE 750)`;
+}
+
+/* ── Floating breadth tracker ──────────────────────────────────────────────
+   Draws the intraday advance/decline series written by fetch_data.py. The
+   y-axis is labelled with the day's own high and low rather than a fixed
+   scale, which is what makes a flat-looking pair of lines readable: on a
+   quiet day the whole range may be twenty names wide.
+
+   Polled separately from the board. A missing or empty file is a normal
+   state -- before the first append of a session there is nothing to draw --
+   so it says so instead of rendering an empty chart. */
+const BF_OPEN = 9 * 60 + 15;
+
+function bfTime(mins){
+  return String(Math.floor(mins / 60)).padStart(2, '0') + ':' +
+         String(mins % 60).padStart(2, '0');
+}
+
+function bfChart(pts){
+  const W = 252, H = 86, PADL = 30, PADR = 4, PADV = 7;
+  const xs = pts.map(p => p[0]);
+  const lo = Math.min(...pts.flatMap(p => [p[1], p[2]]));
+  const hi = Math.max(...pts.flatMap(p => [p[1], p[2]]));
+  // A single point, or a dead-flat day, would divide by zero.
+  const span = (hi - lo) || 1;
+  const x0 = BF_OPEN, x1 = Math.max(...xs, BF_OPEN + 1);
+  const px = m => PADL + (W - PADL - PADR) * (m - x0) / (x1 - x0);
+  const py = v => PADV + (H - 2 * PADV) * (1 - (v - lo) / span);
+  const line = i => pts.map(p => px(p[0]).toFixed(1) + ',' + py(p[i]).toFixed(1)).join(' ');
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+    <rect x="${PADL}" y="0" width="${W - PADL - PADR}" height="${H}" fill="var(--panel-2)"/>
+    <polyline points="${line(1)}" fill="none" stroke="var(--b-strong-gain)" stroke-width="1.6"
+              stroke-linejoin="round" stroke-linecap="round"/>
+    <polyline points="${line(2)}" fill="none" stroke="var(--b-strong-loss)" stroke-width="1.6"
+              stroke-linejoin="round" stroke-linecap="round"/>
+    <text x="${PADL - 4}" y="${py(hi) + 3}" text-anchor="end" font-size="9"
+          font-family="IBM Plex Mono, monospace" fill="var(--text-dim)">${hi}</text>
+    <text x="${PADL - 4}" y="${py(lo) + 3}" text-anchor="end" font-size="9"
+          font-family="IBM Plex Mono, monospace" fill="var(--text-dim)">${lo}</text>
+  </svg>`;
+}
+
+function renderBreadth(doc){
+  const el = document.getElementById('breadthFloat');
+  const body = document.getElementById('bfBody');
+  if(!el || !body) return;
+  const pts = (doc && doc.points) || [];
+  el.hidden = false;
+  if(!pts.length){
+    body.innerHTML = `<div class="bf-empty">No readings yet today — the series starts at 09:15 IST.</div>`;
+    return;
+  }
+  const last = pts[pts.length - 1];
+  body.innerHTML = `
+    <div class="bf-counts">
+      <div class="bf-cell up"><div class="bf-lbl">Advancing</div><div class="bf-num">${last[1]}</div></div>
+      <div class="bf-cell dn"><div class="bf-lbl">Declining</div><div class="bf-num">${last[2]}</div></div>
+    </div>
+    <div class="bf-chart">${bfChart(pts)}</div>
+    <div class="bf-axis"><span>09:15</span><span>${bfTime(last[0])}</span></div>
+    <div class="bf-note">of ${doc.total} names across NSE ranks 1–750 — wider than this board's 235, still not all of NSE</div>`;
+}
+
+function initBreadthFloat(){
+  // Built from here, like the back-to-top button, so BOTH boards get the same
+  // tracker and neither can drift from the other.
+  const el = document.createElement('div');
+  el.className = 'breadth-float';
+  el.id = 'breadthFloat';
+  el.innerHTML = '<div class="bf-head" id="bfHead">'
+    + '<span class="bf-title">Market breadth</span>'
+    + '<span class="bf-caret" id="bfCaret">&#9662;</span></div>'
+    + '<div class="bf-body" id="bfBody"></div>';
+  el.hidden = true;
+  document.body.appendChild(el);
+  const head = el.querySelector('#bfHead');
+  const caret = el.querySelector('#bfCaret');
+  // Remembered per viewer only; it is a convenience, never state anything
+  // else depends on, so a blocked localStorage must not break the panel.
+  // Starts collapsed on a phone, where expanded it would cover a third of the
+  // table before the viewer has asked for it. A stored choice always wins.
+  let collapsed = window.matchMedia('(max-width:560px)').matches;
+  try{
+    const saved = localStorage.getItem('bfCollapsed');
+    if(saved !== null) collapsed = saved === '1';
+  }catch(e){}
+  const paint = () => {
+    el.classList.toggle('collapsed', collapsed);
+    if(caret) caret.textContent = collapsed ? '▸' : '▾';
+  };
+  head.addEventListener('click', () => {
+    collapsed = !collapsed;
+    try{ localStorage.setItem('bfCollapsed', collapsed ? '1' : '0'); }catch(e){}
+    paint();
+  });
+  paint();
+
+  async function pull(){
+    try{
+      // Written by the 44 EMA board's own sweep, which already holds all 750
+      // prices. Same origin on Pages, so no CORS and no copy to drift.
+      const r = await fetch('../nifty-ema-board/data/breadth_today.json?t=' + Date.now(), { cache: 'no-store' });
+      if(!r.ok) throw new Error('HTTP ' + r.status);
+      const doc = await r.json();
+      renderBreadth(doc);
+      setBreadthHeader(doc);
+    }catch(e){
+      renderBreadth(null);
+      setBreadthHeader(null);
+    }
+  }
+  pull();
+  setInterval(pull, 30000);
+}
+
 function initBackToTop(showAfter = 400){
   const btn = document.createElement('button');
   btn.type = 'button';

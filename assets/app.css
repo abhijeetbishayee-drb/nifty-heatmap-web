@@ -211,6 +211,28 @@
     font-variant-numeric:tabular-nums; opacity:0.8; letter-spacing:0.01em;
   }
 
+  /* Week/month nested bar. Shares the tile's currentColor so it themes with
+     the tile's own bucket instead of needing a colour per bucket. */
+  .per-range{ margin-top:5px; }
+  .per-track{ position:relative; height:7px; }
+  .per-track > div{ position:absolute; top:50%; transform:translateY(-50%); }
+  .per-m{ left:0; right:0; height:3px; border-radius:2px;
+          background:color-mix(in srgb, currentColor 16%, transparent); }
+  .per-w{ height:3px; border-radius:2px;
+          background:color-mix(in srgb, currentColor 58%, transparent); }
+  .per-dot{ width:6px; height:6px; border-radius:50%; background:currentColor;
+            transform:translate(-50%,-50%); }
+  /* One line, never two: the three parts wrapped at narrow tile widths and the
+     month high ended up under the low. nowrap plus a shrinkable middle keeps
+     the two prices pinned to the ends, which is what makes it read as a range. */
+  .per-cap{
+    display:flex; justify-content:space-between; align-items:baseline; gap:5px;
+    margin-top:3px; white-space:nowrap;
+    font-family:"IBM Plex Mono",monospace; font-size:8px;
+    font-variant-numeric:tabular-nums; opacity:0.72; letter-spacing:0.01em;
+  }
+  .per-cap .ten{ font-size:7.5px; opacity:0.92; overflow:hidden; text-overflow:ellipsis; }
+
   .b-strong-gain{ background:var(--b-strong-gain); color:var(--b-strong-gain-tx); }
   .b-gain-3{ background:var(--b-gain-3); color:var(--b-gain-3-tx); }
   .b-gain-2{ background:var(--b-gain-2); color:var(--b-gain-2-tx); }

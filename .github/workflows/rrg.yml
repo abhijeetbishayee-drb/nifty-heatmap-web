@@ -63,6 +63,14 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
+      # Completed daily bars cannot change intraday, so the week- and
+      # month-to-date ranges are built once here and the minute job folds
+      # today's live high/low into them. Never fatal: stale period ranges are
+      # worth less than no RRG at all, and the tiles fall back to the day bar.
+      - name: Build week/month ranges for the Nifty 50 tiles
+        continue-on-error: true
+        run: python scripts/build_periods.py
+
       - name: Build RRG data
         run: |
           if [ "${{ inputs.force }}" = "true" ]; then
@@ -75,7 +83,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add rrg_data.json
+          git add rrg_data.json periods.json
           git diff --staged --quiet || git commit -m "Rebuild rrg_data.json"
           git pull --rebase origin main
           git push

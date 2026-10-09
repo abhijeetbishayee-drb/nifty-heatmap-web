@@ -30,6 +30,7 @@
   <div class="indices-row" id="indicesRow"></div>
 
   <div class="meta-row">
+    <div class="status" id="breadthTag" style="font-family:'IBM Plex Mono',monospace;"></div>
     <div class="legend" id="legend"></div>
     <div class="status" id="statusTag"><span class="live-dot"></span><span id="statusText">Loading…</span></div>
   </div>
@@ -60,8 +61,10 @@
 <script>
 renderLegend('legend');
 initBackToTop();
+initBreadthFloat();
 
 function render(data){
+  setTenure(data.tenure);
   const indices = data.indices || {};
   document.getElementById('indicesRow').innerHTML =
     indexCardHtml('NIFTY 50', indices.nifty) + indexCardHtml('BANK NIFTY', indices.banknifty);
