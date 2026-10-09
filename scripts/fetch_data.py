@@ -1,7 +1,8 @@
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from calendar import monthrange
+from datetime import datetime, timezone, timedelta
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO_ROOT, "nifty-heatmap-core"))
@@ -20,7 +21,17 @@ def sort_by_pct(rows):
     )
 
 
+IST = timezone(timedelta(hours=5, minutes=30))
 PERIODS_FILE = "periods.json"
+
+
+def _weekdays(a, b):
+    n, d = 0, a
+    while d <= b:
+        if d.weekday() < 5:
+            n += 1
+        d += timedelta(days=1)
+    return n
 
 
 def attach_periods(rows):
@@ -32,31 +43,54 @@ def attach_periods(rows):
     That split is why a 50-name history fetch does not have to run every
     minute.
 
-    A name with no period record -- a fresh constituent whose history did not
-    come back -- simply gets no week/month block and the tile falls back to the
-    day bar alone, rather than showing a range built from today only and
-    labelled as a month.
+    THE STORED PERIOD IS CHECKED, NOT TRUSTED. periods.json is built after one
+    close and read through the next session, so on a Monday the week it stamps
+    is LAST week's -- folding today into that range would show a weekly high
+    the week had not reached, every Monday, and on the 1st of a month the same
+    for the month. When the stored period is not the current one it is dropped
+    and the range starts from today alone, which is exactly what a first
+    session of a period is.
+
+    A name with no record -- a fresh constituent whose history did not come
+    back -- gets no block at all and the tile falls back to the day bar, rather
+    than showing today's range labelled as a month.
     """
     try:
         with open(PERIODS_FILE) as f:
             doc = json.load(f)
     except (OSError, ValueError):
         return None
+
+    today = datetime.now(IST).date()
+    week_start = today - timedelta(days=today.weekday())
+    month_start = today.replace(day=1)
+    cur = {
+        "week": (week_start, week_start + timedelta(days=4)),
+        "month": (month_start,
+                  today.replace(day=monthrange(today.year, today.month)[1])),
+    }
+    fresh = {k: (doc.get(k, {}).get("start") == cur[k][0].isoformat())
+             for k in cur}
+
     names = doc.get("names", {})
     for r in rows:
         rec = names.get(r["ticker"])
-        if not rec or r.get("price") is None:
+        if r.get("price") is None:
             continue
         hi_today = r.get("dayHigh") or r["price"]
         lo_today = r.get("dayLow") or r["price"]
         for pfx, key in (("w", "week"), ("m", "month")):
-            hi, lo = rec.get(pfx + "High"), rec.get(pfx + "Low")
+            hi = rec.get(pfx + "High") if (rec and fresh[key]) else None
+            lo = rec.get(pfx + "Low") if (rec and fresh[key]) else None
             hi = max(hi, hi_today) if hi is not None else hi_today
             lo = min(lo, lo_today) if lo is not None else lo_today
             if hi > lo:
                 r[key] = {"high": round(hi, 2), "low": round(lo, 2)}
-    return {"week": doc.get("week"), "month": doc.get("month"),
-            "asof": doc.get("asof")}
+
+    return {k: {"start": cur[k][0].isoformat(),
+                "elapsed": (doc.get(k, {}).get("bars", 0) if fresh[k] else 0) + 1,
+                "total": _weekdays(*cur[k])}
+            for k in cur} | {"asof": today.isoformat()}
 
 
 def main():

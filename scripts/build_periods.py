@@ -114,19 +114,23 @@ def main() -> int:
         "asof": today.isoformat(),
         # Elapsed counts INCLUDE today, which is in progress: the tile is
         # showing today's prices, so today is a session you are looking at.
+        # COMPLETED sessions only, and the period each belongs to. The reader
+        # adds today and decides whether these still apply -- this file is
+        # built after one close and read through the NEXT session, so on a
+        # Monday the week stamped here is last week's.
         "week":  {"start": week_start.isoformat(),
-                  "elapsed": max(r["wBars"] for r in out.values()) + 1,
+                  "bars": max(r["wBars"] for r in out.values()),
                   "total": weekdays_between(week_start, week_end)},
         "month": {"start": month_start.isoformat(),
-                  "elapsed": max(r["mBars"] for r in out.values()) + 1,
+                  "bars": max(r["mBars"] for r in out.values()),
                   "total": weekdays_between(month_start, month_end)},
         "names": out,
     }
     with open(OUT, "w") as f:
         json.dump(doc, f, separators=(",", ":"))
     print(f"periods.json: {len(out)}/{len(NIFTY50)} names · "
-          f"week {doc['week']['elapsed']}/{doc['week']['total']} · "
-          f"month {doc['month']['elapsed']}/{doc['month']['total']}")
+          f"week {doc['week']['bars']}+today/{doc['week']['total']} · "
+          f"month {doc['month']['bars']}+today/{doc['month']['total']}")
     return 0
 
 
